@@ -1,6 +1,7 @@
 import arcade
 import os
 import csv
+from datetime import datetime
 from ban_word import banword  
 
 WIDTH = 800
@@ -89,7 +90,25 @@ class name(arcade.View):
 
 
 
-
+    def _play_click_sfx(self):
+        try:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            sfx_path = os.path.join(base_dir, "assets", "sfx", "button_sfx", "4.mp3")
+            click_sound = arcade.load_sound(sfx_path)
+            
+            # Ambil setelan volume sfx dari file setting bawaan game Anda
+            try:
+                from setting import load_settings as _ls
+                _svol = _ls().get("sfx_volume", 0.0)
+            except Exception:
+                _svol = 0.0
+                
+            arcade.play_sound(click_sound, volume=_svol)
+        except Exception as e:
+            print(f"Gagal memutar SFX tombol: {e}")
+    
+    
+    
     def load_users_from_csv(self):
         self.user_list = []
         if os.path.exists(FILE_NAME):
@@ -121,17 +140,22 @@ class name(arcade.View):
                 for row in reader[1:]:
                     if row:
                         existing_data[row[0]] = row[1:] 
+
+        
+        current_time = datetime.now().strftime("%d/%m/%Y") 
         
 
 
 
         if self.is_renaming and self.old_name_to_rename in existing_data:
             old_details = existing_data.pop(self.old_name_to_rename)
+            old_details[0] = current_time 
+            
             existing_data[active_name] = old_details
             self.is_renaming = False
             self.old_name_to_rename = ""
         elif active_name not in existing_data:
-            existing_data[active_name] = ["-","-","-"] 
+            existing_data[active_name] = [current_time,"-","-"]   
         
         with open(FILE_NAME, mode='w', newline='', encoding='utf-8') as file:
             writer = csv.writer(file)
@@ -174,7 +198,7 @@ class name(arcade.View):
 
     def on_show_view(self):
         self.start_y = self.window.height // 2 + 100
-        arcade.set_background_color((10, 10, 15))
+        arcade.set_background_color((9, 26, 45))
 
 
 
@@ -188,8 +212,8 @@ class name(arcade.View):
         self.start_y = self.window.height // 2 + 100
 
         if self.state == "SELECT" or self.state == "CONFIRM_DELETE":
-            arcade.draw_text("WHO ARE YOU?", self.window.width  // 2, self.window.height // 2 + 180, arcade.color.YELLOW, font_size=24, bold=True, anchor_x="center")
-            arcade.draw_rect_filled(arcade.rect.XYWH(self.window.width  // 2, self.window.height // 2 + 50, 400, 160), (20, 20, 30))
+            arcade.draw_text("WHO ARE YOU?", self.window.width  // 2, self.window.height // 2 + 180, (216, 178, 92), font_size=24, bold=True, anchor_x="center")
+            arcade.draw_rect_filled(arcade.rect.XYWH(self.window.width  // 2, self.window.height // 2 + 50, 400, 160), (26, 24, 20))
             
             total_items = len(self.user_list) + 1
             self.createbtn_y = -999
@@ -204,8 +228,8 @@ class name(arcade.View):
                         is_selected = (actual_index == self.selected_index)
                     
                         if is_selected:
-                            arcade.draw_rect_filled(arcade.rect.XYWH(self.window.width  // 2, current_row_y, 380, 30), (40, 100, 50))
-                            color = arcade.color.GREEN
+                            arcade.draw_rect_filled(arcade.rect.XYWH(self.window.width  // 2, current_row_y, 380, 30), (78, 62, 38))
+                            color = (216, 178, 92)
                         else:
                             color = arcade.color.WHITE
                     
@@ -213,7 +237,7 @@ class name(arcade.View):
                 
                     elif actual_index == len(self.user_list):
                         self.createbtn_y = current_row_y
-                        create_color = arcade.color.GREEN if self.createbtn_hovered else arcade.color.LIGHT_GRAY
+                        create_color = (216, 178, 92) if self.createbtn_hovered else arcade.color.LIGHT_GRAY
                         arcade.draw_text("(Create a New User)", x=self.createbtn_x, y=self.createbtn_y, color=create_color, font_size=16, italic=True, anchor_x="center", anchor_y="center")
 
             self.confirmbtn_x = self.window.width  // 2 - 140
@@ -221,15 +245,22 @@ class name(arcade.View):
             self.cancelbtn_x = self.window.width  // 2 + 140
             self.cancelbtn_y = self.window.height // 2 - 140
 
-            confirmbtn_color = (60, 180, 100) if self.confirmbtn_hovered else (40, 130, 70)
-            renamebtn_color  = (60, 180, 100) if self.renamebtn_hovered else (40, 130, 70)
-            cancelbtn_color  = (60, 180, 100) if self.cancelbtn_hovered else (40, 130, 70)
-            deletebtn_color  = (60, 180, 100) if self.deletebtn_hovered else (40, 130, 70)
+            outline_color = (255, 255, 255) # Warna outline: Putih
+            outline_thick = 3
+
+            confirmbtn_color = (78, 62, 38) if self.confirmbtn_hovered else (30, 28, 24)
+            renamebtn_color  = (78, 62, 38) if self.renamebtn_hovered else (30, 28, 24)
+            cancelbtn_color  = (78, 62, 38) if self.cancelbtn_hovered else (30, 28, 24)
+            deletebtn_color  = (78, 62, 38) if self.deletebtn_hovered else (30, 28, 24)
 
             arcade.draw_rect_filled(arcade.rect.XYWH(self.confirmbtn_x, self.confirmbtn_y, self.confirmbtn_w, self.confirmbtn_h), confirmbtn_color)
+            arcade.draw_rect_outline(arcade.rect.XYWH(self.confirmbtn_x, self.confirmbtn_y, self.confirmbtn_w, self.confirmbtn_h),outline_color,border_width=outline_thick)
             arcade.draw_rect_filled(arcade.rect.XYWH(self.renamebtn_x, self.renamebtn_y, self.renamebtn_w, self.renamebtn_h), renamebtn_color)
+            arcade.draw_rect_outline(arcade.rect.XYWH(self.renamebtn_x, self.renamebtn_y, self.renamebtn_w, self.renamebtn_h),outline_color,border_width=outline_thick)
             arcade.draw_rect_filled(arcade.rect.XYWH(self.cancelbtn_x, self.cancelbtn_y, self.cancelbtn_w, self.cancelbtn_h), cancelbtn_color)
+            arcade.draw_rect_outline(arcade.rect.XYWH(self.cancelbtn_x, self.cancelbtn_y, self.cancelbtn_w, self.cancelbtn_h),outline_color,border_width=outline_thick)
             arcade.draw_rect_filled(arcade.rect.XYWH(self.deletebtn_x, self.deletebtn_y, self.deletebtn_w, self.deletebtn_h), deletebtn_color)
+            arcade.draw_rect_outline(arcade.rect.XYWH(self.deletebtn_x, self.deletebtn_y, self.deletebtn_w, self.deletebtn_h),outline_color,border_width=outline_thick)
 
             arcade.draw_text("OK", x=self.confirmbtn_x, y=self.confirmbtn_y, color=arcade.color.WHITE, font_size=20, bold=True, anchor_x="center", anchor_y="center")
             arcade.draw_text("Rename", x=self.renamebtn_x, y=self.renamebtn_y, color=arcade.color.WHITE, font_size=20, bold=True, anchor_x="center", anchor_y="center")
@@ -241,7 +272,7 @@ class name(arcade.View):
 
         elif self.state == "TYPING" or self.state == "ALERT_BANNED":
             title_text = "Rename Your Name" if self.is_renaming else "Input Your Name"
-            arcade.draw_text(title_text, self.window.width  // 2, self.window.height // 2 + 100, arcade.color.YELLOW, font_size=22, bold=True, anchor_x="center")
+            arcade.draw_text(title_text, self.window.width  // 2, self.window.height // 2 + 100, (216, 178, 92), font_size=22, bold=True, anchor_x="center")
             
             # PERBAIKAN: Lakukan sensor secara visual saat digambar ke layar
             display_text = self.raw_typing
@@ -257,8 +288,9 @@ class name(arcade.View):
             if not self.user_list:
                 self.confirmbtn_x = self.window.width  // 2
                 self.confirmbtn_y = self.window.height // 2 - 140
-                confirmbtn_color = (60, 180, 100) if self.confirmbtn_hovered else (40, 130, 70)
+                confirmbtn_color = (78, 62, 38) if self.confirmbtn_hovered else (30, 28, 24)
                 arcade.draw_rect_filled(arcade.rect.XYWH(self.confirmbtn_x, self.confirmbtn_y, self.confirmbtn_w, self.confirmbtn_h), confirmbtn_color)
+                arcade.draw_rect_outline(arcade.rect.XYWH(self.confirmbtn_x, self.confirmbtn_y, self.confirmbtn_w, self.confirmbtn_h), (255, 255, 255), border_width=3)
                 arcade.draw_text("OK", x=self.confirmbtn_x, y=self.confirmbtn_y, color=arcade.color.WHITE, font_size=20, bold=True, anchor_x="center", anchor_y="center")
             else:
                 self.confirmbtn_x = self.window.width  // 2 - 110
@@ -266,24 +298,25 @@ class name(arcade.View):
                 self.cancelbtn_x = self.window.width  // 2 + 110
                 self.cancelbtn_y = self.window.height // 2 - 140
 
-                confirmbtn_color = (60, 180, 100) if self.confirmbtn_hovered else (40, 130, 70)
-                cancelbtn_color  = (60, 180, 100) if self.cancelbtn_hovered else (40, 130, 70)
+                confirmbtn_color = (78, 62, 38) if self.confirmbtn_hovered else (30, 28, 24)
+                cancelbtn_color  = (78, 62, 38) if self.cancelbtn_hovered else (30, 28, 24)
 
                 arcade.draw_rect_filled(arcade.rect.XYWH(self.confirmbtn_x, self.confirmbtn_y, self.confirmbtn_w, self.confirmbtn_h), confirmbtn_color)
                 arcade.draw_rect_filled(arcade.rect.XYWH(self.cancelbtn_x, self.cancelbtn_y, self.cancelbtn_w, self.cancelbtn_h), cancelbtn_color)
+                arcade.draw_rect_outline(arcade.rect.XYWH(self.confirmbtn_x, self.confirmbtn_y, self.confirmbtn_w, self.confirmbtn_h), (255, 255, 255), border_width=3)
+                arcade.draw_rect_outline(arcade.rect.XYWH(self.cancelbtn_x, self.cancelbtn_y, self.cancelbtn_w, self.cancelbtn_h), (255, 255, 255), border_width=3)
 
                 arcade.draw_text("OK", x=self.confirmbtn_x, y=self.confirmbtn_y, color=arcade.color.WHITE, font_size=20, bold=True, anchor_x="center", anchor_y="center")
                 arcade.draw_text("Cancel", x=self.cancelbtn_x, y=self.cancelbtn_y, color=arcade.color.WHITE, font_size=20, bold=True, anchor_x="center", anchor_y="center")
-
+ 
 
 
         if self.state == "CONFIRM_DELETE":
             arcade.draw_rect_filled(arcade.rect.XYWH(self.window.width  // 2, self.window.height // 2, WIDTH, HEIGHT), (0, 0, 0, 150))
             arcade.draw_rect_filled(arcade.rect.XYWH(self.window.width  // 2, self.window.height // 2, 420, 180), (30, 30, 45))
-            arcade.draw_rect_outline(arcade.rect.XYWH(self.window.width  // 2, self.window.height // 2, 420, 180), arcade.color.RED, border_width=2)
             
             arcade.draw_text("APAKAH KAMU INGIN", self.window.width  // 2, self.window.height // 2 + 45, arcade.color.WHITE, font_size=16, bold=True, anchor_x="center")
-            arcade.draw_text("MENGHAPUS USERNAME INI?", self.window.width  // 2, self.window.height // 2 + 20, arcade.color.YELLOW, font_size=16, bold=True, anchor_x="center")
+            arcade.draw_text("MENGHAPUS USERNAME INI?", self.window.width  // 2, self.window.height // 2 + 20, (216, 178, 92), font_size=16, bold=True, anchor_x="center")
             
             pk_color = (200, 50, 50) if self.pop_ok_hovered else (150, 30, 30)
             arcade.draw_rect_filled(arcade.rect.XYWH(self.pop_ok_x, self.pop_ok_y, self.pop_ok_w, self.pop_ok_h), pk_color)
@@ -296,9 +329,7 @@ class name(arcade.View):
 
         elif self.state == "ALERT_BANNED":
             arcade.draw_rect_filled(arcade.rect.XYWH(self.window.width  // 2, self.window.height // 2, WIDTH, HEIGHT), (0, 0, 0, 180))
-            arcade.draw_rect_filled(arcade.rect.XYWH(self.window.width  // 2, self.window.height // 2, 420, 180), (35, 25, 25))
-            arcade.draw_rect_outline(arcade.rect.XYWH(self.window.width  // 2, self.window.height // 2, 420, 180), arcade.color.RED, border_width=2)
-            
+            arcade.draw_rect_filled(arcade.rect.XYWH(self.window.width  // 2, self.window.height // 2, 420, 180), (35, 25, 25))            
             arcade.draw_text("NAMA TIDAK DIPERBOLEHKAN!", self.window.width  // 2, self.window.height // 2 + 30, arcade.color.RED, font_size=16, bold=True, anchor_x="center")
             
             a_ok_color = (200, 50, 50) if self.alert_ok_hovered else (140, 30, 30)
@@ -464,6 +495,7 @@ class name(arcade.View):
         if button == arcade.MOUSE_BUTTON_LEFT:
 
             if self.state == "CONFIRM_DELETE":
+                self._play_click_sfx()
                 if self._pop_ok_button(x, y):
                     nama_mau_dihapus = self.user_list[self.selected_index]
                     self.delete_user_from_csv(nama_mau_dihapus)
@@ -472,6 +504,7 @@ class name(arcade.View):
                 return
 
             if self.state == "ALERT_BANNED":
+                self._play_click_sfx()
                 if self._alert_ok_button(x, y):
                     self.state = "TYPING"
                     self.raw_typing = "" 
@@ -484,12 +517,14 @@ class name(arcade.View):
             if self.state == "TYPING":
                 if self._confirm_button(x, y) and self.raw_typing.strip() != "":
                     has_banned = False
+                    self._play_click_sfx()
                     for word in banword:
                         if word.upper() in self.raw_typing:
                             has_banned = True
                             break
 
                     if has_banned:
+                        self._play_click_sfx()
                         self.state = "ALERT_BANNED"
                         return
                     
@@ -498,6 +533,7 @@ class name(arcade.View):
                     self.go_to_main_menu()
                 
                 elif self._cancel_button(x, y):
+                    self._play_click_sfx()
                     if self.user_list:
                         self.state = "SELECT"
                         self.is_renaming = False
@@ -510,12 +546,14 @@ class name(arcade.View):
 
 
             if self.state == "SELECT":
+                self._play_click_sfx()
                 row_clicked = self._check_name_row_hover(x, y)
                 if row_clicked is not None:
                     self.selected_index = row_clicked
                     return
                 
                 if self._confirm_button(x, y) and self.user_list:
+                    self._play_click_sfx()
                     nama_terpilih = self.user_list[self.selected_index]
                     if "#" in nama_terpilih:
                         return
@@ -523,11 +561,13 @@ class name(arcade.View):
                     self.go_to_main_menu()
 
                 elif self._create_button(x, y):
+                    self._play_click_sfx()
                     self.raw_typing = ""
                     self.state = "TYPING"
                     self.is_renaming = False
 
                 elif self._rename_button(x, y) and self.user_list:
+                    self._play_click_sfx()
                     self.is_renaming = True
                     self.old_name_to_rename = self.user_list[self.selected_index]
                     if "#" in self.old_name_to_rename:
@@ -537,9 +577,11 @@ class name(arcade.View):
                     self.state = "TYPING"
 
                 elif self._delete_button(x, y) and self.user_list:
+                    self._play_click_sfx()
                     self.state = "CONFIRM_DELETE"
 
                 elif self._cancel_button(x, y):
+                    self._play_click_sfx()
                     self.go_to_main_menu()
     
     def go_to_main_menu(self):

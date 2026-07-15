@@ -3,6 +3,9 @@
 import arcade
 import math
 import random
+import os
+
+import audio_registry
 
 
 
@@ -45,6 +48,21 @@ PLAYER_REF_HEIGHT = 30
 DASH_JUMP_ZONE = 20
 
 SPLASH_COUNT = 6
+
+# ── SFX bubble: dibuat "sustained" (looping) selama BUBBLE_SUSTAIN_FRAMES
+# supaya konsisten kedengaran ~1 detik setiap kali nyebrang permukaan,
+# tidak bergantung ke durasi asli file bubble.mp3 (yang bisa saja sangat
+# pendek/langsung terpotong kalau cuma dimainkan sekali/one-shot). ──
+BUBBLE_SUSTAIN_FRAMES = 60   # ~1 detik @ 60fps
+
+# ── SFX outside (ambient) — mulai diputar SAAT MASIH DI DALAM AIR tapi
+# sudah mendekati perbatasan permukaan (bukan dipicu oleh lompat). Makin
+# dekat ke permukaan, makin kencang, dan tepat DI permukaan (sebelum
+# benar-benar lompat keluar) volume sudah FULL. Selama di udara, volume
+# tetap full (karena sudah full sejak di permukaan). ──
+OUTSIDE_VOLUME_MIN_FRAC  = 0.25   # volume saat baru masuk jangkauan (paling jauh)
+OUTSIDE_VOLUME_MAX_FRAC  = 3.0    # volume saat tepat di permukaan / di udara
+OUTSIDE_APPROACH_RANGE   = 300.0  # px di bawah permukaan tempat sfx mulai kedengaran
 
 
 # ─── Percikan ─────────────────────────────────────────────────────────────────
@@ -97,10 +115,187 @@ class WaterBoundary:
         self._air_frames = 0
         self._splashes   = []
 
+        # ── SFX: di-load SEKALI di sini, dipakai berkali-kali tanpa
+        # baca file lagi tiap kali dipicu. ──
+        self._jump_sfx    = self._load_sfx("assets", "sfx", "jump_sfx", "jump.mp3")
+        self._splash_sfx  = self._load_sfx("assets", "sfx", "jump_sfx", "splash.mp3")
+        self._bubble_sfx  = self._load_sfx("assets", "sfx", "outside_sfx", "bubble.mp3")
+        self._outside_sfx = self._load_sfx("assets", "sfx", "outside_sfx", "outside.mp3")
+
+        # Referensi player suara "outside" yang SEDANG loop (untuk stop nanti)
+        self._outside_player = None
+
+        # ── Bubble sustained: player suara bubble yang sedang loop +
+        # sisa frame sebelum otomatis dihentikan (lihat BUBBLE_SUSTAIN_FRAMES) ──
+        self._bubble_player = None
+        self._bubble_timer  = 0
+
+        # Jeda singkat setelah mendarat (splash masuk air) sebelum ambient
+        # 'outside' boleh mulai lagi lewat sistem approach — supaya tidak
+        # langsung nyala ulang di frame yang sama persis saat baru mendarat
+        # (posisi masih persis di garis permukaan).
+        self._outside_restart_cooldown = 0
+
+    def _load_sfx(self, *path_parts):
+        """Load satu file sfx, kembalikan None kalau gagal (tidak crash)."""
+        try:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            return arcade.load_sound(os.path.join(base_dir, *path_parts))
+        except Exception as e:
+            print(f"[outside.py] GAGAL load sfx '{path_parts[-1]}': {e}")
+            return None
+
+    def _sfx_volume(self):
+        try:
+            from setting import load_settings as _ls
+            return _ls().get("sfx_volume", 0.6)
+        except Exception:
+            return 0.6
+
+    def _play_one_shot(self, sfx):
+        """Mainkan sfx SEKALI (jump/splash/bubble — bukan loop)."""
+        if sfx is None:
+            return
+        try:
+            arcade.play_sound(sfx, volume=self._sfx_volume())
+        except Exception as e:
+            print(f"Gagal memutar sfx: {e}")
+
+    def _start_outside_loop(self, start_vol=None):
+        """Mulai ambient 'outside'. Dipanggil dari _update_outside_ambient
+        begitu player masuk jangkauan OUTSIDE_APPROACH_RANGE dari permukaan
+        (baik masih di air maupun sudah di udara)."""
+        if self._outside_sfx is None:
+            return
+        self._stop_outside_loop()   # jaga-jaga, jangan sampai dobel
+        if start_vol is None:
+            start_vol = self._sfx_volume() * OUTSIDE_VOLUME_MIN_FRAC
+        try:
+            self._outside_player = arcade.play_sound(
+                self._outside_sfx, volume=start_vol, loop=True
+            )
+            audio_registry.register(self._outside_player)
+        except Exception as e:
+            print(f"Gagal memutar sfx outside: {e}")
+
+    def _stop_outside_loop(self):
+        """Hentikan ambient 'outside' — dipanggil pas player menjauh dari
+        perbatasan permukaan (balik nyelam dalam) atau saat respawn."""
+        if self._outside_player is None:
+            return
+        try:
+            arcade.stop_sound(self._outside_player)
+        except Exception:
+            pass
+        audio_registry.unregister(self._outside_player)
+        self._outside_player = None
+
+    def _update_outside_ambient(self, player):
+        """Panggil TIAP FRAME (baik lagi di air maupun di udara).
+
+        Menghitung seberapa dekat player ke garis permukaan:
+          - Masih di dalam air & mendekati permukaan (<= OUTSIDE_APPROACH_RANGE
+            px dari permukaan) -> ambient mulai kedengaran, makin dekat makin
+            kencang, sampai FULL tepat saat menyentuh permukaan.
+          - Sudah di udara -> tetap FULL (karena sudah full sejak di permukaan).
+          - Jauh dari permukaan (baik lagi nyelam dalam) -> ambient berhenti.
+        """
+        if self._outside_restart_cooldown > 0:
+            self._outside_restart_cooldown -= 1
+
+        base = self._sfx_volume()
+
+        if self.in_air:
+            # Sudah di udara: pertahankan full volume. Kalau entah kenapa
+            # belum ada player aktif (misal race condition), mulai di full.
+            if self._outside_player is None:
+                self._start_outside_loop(start_vol=base * OUTSIDE_VOLUME_MAX_FRAC)
+            else:
+                try:
+                    self._outside_player.volume = base * OUTSIDE_VOLUME_MAX_FRAC
+                except Exception:
+                    pass
+            return
+
+        # Masih di air: hitung jarak player ke permukaan dari BAWAH.
+        player_top   = player.y + PLAYER_REF_HEIGHT / 2
+        dist_below   = self.surface_y - player_top   # >0 = masih di bawah permukaan
+
+        if dist_below <= OUTSIDE_APPROACH_RANGE:
+            t = 1.0 - max(0.0, min(1.0, dist_below / OUTSIDE_APPROACH_RANGE))
+            frac = OUTSIDE_VOLUME_MIN_FRAC + (OUTSIDE_VOLUME_MAX_FRAC - OUTSIDE_VOLUME_MIN_FRAC) * t
+            vol  = max(0.0, min(1.0, base * frac))
+            if self._outside_player is None:
+                if self._outside_restart_cooldown <= 0:
+                    self._start_outside_loop(start_vol=vol)
+            else:
+                try:
+                    self._outside_player.volume = vol
+                except Exception:
+                    pass
+        else:
+            # Masih jauh dari permukaan -> pastikan ambient tidak bunyi.
+            self._stop_outside_loop()
+
+    def _play_bubble_sustained(self):
+        """Mainkan bubble sfx sebagai loop pendek yang bertahan ~1 detik
+        (BUBBLE_SUSTAIN_FRAMES), bukan one-shot. Ini membuat bubble sfx
+        konsisten kedengaran setiap kali nyebrang permukaan, tidak
+        tergantung durasi asli file bubble.mp3."""
+        if self._bubble_sfx is None:
+            return
+        # Stop instance bubble sebelumnya kalau masih ada (jaga-jaga biar
+        # tidak dobel/tumpuk saat lompat cepat berturut-turut)
+        if self._bubble_player is not None:
+            try:
+                arcade.stop_sound(self._bubble_player)
+            except Exception:
+                pass
+            audio_registry.unregister(self._bubble_player)
+            self._bubble_player = None
+        try:
+            self._bubble_player = arcade.play_sound(
+                self._bubble_sfx, volume=self._sfx_volume(), loop=True
+            )
+            audio_registry.register(self._bubble_player)
+        except Exception as e:
+            print(f"Gagal memutar sfx bubble: {e}")
+        self._bubble_timer = BUBBLE_SUSTAIN_FRAMES
+
+    def _tick_bubble_sustain(self):
+        """Panggil tiap frame — hentikan bubble sfx otomatis setelah
+        BUBBLE_SUSTAIN_FRAMES (~1 detik)."""
+        if self._bubble_timer <= 0:
+            return
+        self._bubble_timer -= 1
+        if self._bubble_timer <= 0 and self._bubble_player is not None:
+            try:
+                arcade.stop_sound(self._bubble_player)
+            except Exception:
+                pass
+            audio_registry.unregister(self._bubble_player)
+            self._bubble_player = None
+
     # ──────────────────────────────────────────────────────────────────────────
 
     def update(self, player, mouse_world_x=None):
         if getattr(player, 'is_spawning', False):
+            # Player bisa tiba-tiba di-respawn (misal dimakan huge fish /
+            # dangerous fish) SAAT MASIH DI UDARA/DEKAT PERMUKAAN. Kalau
+            # begitu, method ini langsung return di sini SETIAP frame
+            # selama animasi respawn, jadi jalur normal yang biasanya
+            # menghentikan ambient 'outside' tidak akan tercapai. Tanpa
+            # ini, sfx bisa nyangkut terus-menerus — hentikan di sini.
+            if self._outside_player is not None:
+                self._stop_outside_loop()
+            if self._bubble_player is not None:
+                try:
+                    arcade.stop_sound(self._bubble_player)
+                except Exception:
+                    pass
+                audio_registry.unregister(self._bubble_player)
+                self._bubble_player = None
+            self._bubble_timer = 0
             self.in_air      = False
             self._air_frames = 0
             return
@@ -109,6 +304,9 @@ class WaterBoundary:
             self._update_in_water(player)
         else:
             self._update_in_air(player, mouse_world_x)
+
+        self._update_outside_ambient(player)
+        self._tick_bubble_sustain()
 
         for s in self._splashes:
             s.update()
@@ -133,6 +331,14 @@ class WaterBoundary:
             player.y         = self.surface_y + PLAYER_REF_HEIGHT / 2 + 2
             player.speed_y   = JUMP_SPEED_Y
             self._spawn_splash(player.x, self.surface_y)
+
+            # ── SFX: (1) lompat keluar air, (2) bubble di perbatasan
+            # (sustained ~1 detik). Ambient 'outside' TIDAK di-start di
+            # sini lagi — sudah ditangani _update_outside_ambient() yang
+            # mulai membesar saat MENDEKATI permukaan (sebelum lompat),
+            # jadi di titik ini seharusnya sudah full volume. ──
+            self._play_one_shot(self._jump_sfx)
+            self._play_bubble_sustained()
             return
 
         # Blokir menggunakan ref height agar konsisten
@@ -192,6 +398,17 @@ class WaterBoundary:
             player.y         = self.surface_y - PLAYER_REF_HEIGHT / 2 + 1
             player.speed_y   = 0
             self._spawn_splash(player.x, self.surface_y)
+
+            # ── SFX: (2) jatuh ke air, (3) bubble di perbatasan
+            # (sustained ~1 detik, baru hilang setelahnya), (4) hentikan
+            # ambient 'outside' karena sudah kembali ke air. Cooldown
+            # singkat dipasang supaya sistem approach (_update_outside_ambient)
+            # tidak langsung menyalakannya lagi di frame yang sama persis
+            # (posisi masih pas di garis permukaan). ──
+            self._play_one_shot(self._splash_sfx)
+            self._play_bubble_sustained()
+            self._stop_outside_loop()
+            self._outside_restart_cooldown = 20
 
     def _spawn_splash(self, x, y):
         for _ in range(SPLASH_COUNT):

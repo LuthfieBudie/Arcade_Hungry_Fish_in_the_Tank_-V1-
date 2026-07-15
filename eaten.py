@@ -1,32 +1,25 @@
 import arcade
+import os
 
 SCREEN_WIDTH  = 800
 SCREEN_HEIGHT = 560
 
-
-EATEN_DURATION = 240
+EATEN_DURATION = 120
 
 # Ukuran kotak placeholder (ganti dengan ukuran image kamu nanti)
 BOX_WIDTH  = 300
 BOX_HEIGHT = 200
-BOX_COLOR  = (180, 50, 50)   # merah gelap — ganti sesuai selera / image
+BOX_COLOR  = (180, 50, 50)   # merah gelap
+
+# ─── PATH AUDIO ───────────────────────────────────────────────────────────────
+BASE_DIR         = os.path.dirname(os.path.abspath(__file__))
+RESPAWN_SFX_PATH = os.path.join(BASE_DIR, "assets", "sfx", "respawn_sfx", "respawn.mp3") 
+DEAD_SFX_PATH    = os.path.join(BASE_DIR, "assets", "sfx", "gameover_sfx", "gameover.mp3") 
 
 
 class EatenScreen:
     """Komponen 'dimakan': tampilkan kotak placeholder di tengah layar selama 4 detik,
     lalu panggil callback respawn.
-
-    Cara pakai di GameView:
-        self.eaten_screen = EatenScreen()
-        # Saat player mati:
-        self.eaten_screen.start(callback=self._do_respawn)
-        # Di on_update:
-        self.eaten_screen.update()
-        # Di on_draw (gui camera, paling atas):
-        self.eaten_screen.draw()
-        # Blokir update game saat aktif:
-        if self.eaten_screen.active:
-            return
     """
 
     def __init__(self):
@@ -34,11 +27,21 @@ class EatenScreen:
         self.timer     = 0
         self._callback = None
 
+        # ─── LOAD AUDIO ───────────────────────────────────────────────────────
+        self._dead_sfx = None
+        try:
+            self._dead_sfx = arcade.load_sound(DEAD_SFX_PATH)
+        except Exception as e:
+            print(f"Gagal memuat SFX Kematian (dead.mp3): {e}")
+
     def start(self, callback=None):
         """Mulai layar dimakan."""
         self.active    = True
         self.timer     = EATEN_DURATION
         self._callback = callback
+
+        # Catatan: arcade.play_sound sengaja dipindah ke GameView agar suara 
+        # pas dengan animasi menciut/dimakan musuh sebelum kotak ini muncul.
 
     def update(self):
         if not self.active:
@@ -51,12 +54,7 @@ class EatenScreen:
                 self._callback = None
 
     def draw(self, screen_width=SCREEN_WIDTH, screen_height=SCREEN_HEIGHT):
-        """Gambar satu kotak placeholder di tengah layar.
-
-        UNTUK MENGGANTI DENGAN IMAGE:
-            Ganti baris arcade.draw_rect_filled(...) dengan:
-            arcade.draw_texture_rect(texture, arcade.rect.XYWH(cx, cy, BOX_WIDTH, BOX_HEIGHT))
-        """
+        """Gambar satu kotak placeholder di tengah layar."""
         if not self.active:
             return
 

@@ -2,7 +2,9 @@ import arcade
 import random
 import math
 import os
+import csv
 from pause import pause
+import audio_registry
 from main_fish import mainfish
 from small_fish import smallfish, jumpingsmallfish, speedmediumfish
 from medium_fish import mediumfish
@@ -16,6 +18,8 @@ from respawn import RespawnAnimator
 from outside import WaterBoundary
 from bugs import BugManager
 from gameover import GameOverScreen
+from power_up import PowerUpManager
+from power_up_system import PowerUpInventory
 
 
 try:
@@ -31,7 +35,7 @@ HEIGHT = 560
 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-MUSIC_PATH = os.path.join(BASE_DIR, "assets", "music", "freeplay", "Pixel_Parade_1.mp3")
+MUSIC_PATH = os.path.join(BASE_DIR, "assets", "music", "freeplay", "Glass Tides.mp3")
 
 
 class GameView(arcade.View):
@@ -40,14 +44,16 @@ class GameView(arcade.View):
     def __init__(self):
         super().__init__()
 
+        
+
+        self.total_time = 0.0
+
         self.is_resuming = False
         # Dunia game selalu 3200×2240 terlepas dari ukuran layar
         self.MAP_WIDTH  = 800 * 4
         self.MAP_HEIGHT = 560 * 4
 
-        # ── Sistem nyawa (lives) ──
-        # Main fish punya 3 nyawa. Setiap kali dimakan, nyawa berkurang 1.
-        # Saat nyawa habis (0), setelah eaten screen selesai, tampilkan Game Over.
+
         self.MAX_LIVES = 3
         self.lives     = self.MAX_LIVES
         self.game_over_screen = GameOverScreen()
@@ -59,7 +65,7 @@ class GameView(arcade.View):
         self._player_eaten_anim      = None   # objek animasi yang sedang berjalan
         self._death_wait_timer       = 0      # sisa frame jeda sebelum kotak muncul
         self._pending_death_callback = None   # _do_respawn atau _trigger_game_over
-        self.DEATH_NOTIFY_DELAY      = 120    # 2 detik @ 60 FPS
+        self.DEATH_NOTIFY_DELAY      = 20    # 2 detik @ 60 FPS
 
         # ── Smoothing bar evolusi ──
         # Nilai skor yang ditampilkan di HUD "mengejar" skor asli secara
@@ -71,11 +77,12 @@ class GameView(arcade.View):
 
         self.player_fish = mainfish(x=self.MAP_WIDTH // 2, y=self.MAP_HEIGHT // 2)
         self.player_fish.is_being_eaten = False
+        self.player_fish.is_invulnerable = True
+        self.player_fish.kebal_timer = 120
         # Override trigger_respawn agar mati -> eaten screen (4 detik) -> respawn animasi
         _game_ref = self
         _orig_trigger = self.player_fish.trigger_respawn
         def _patched_trigger_respawn(target_x, target_y, map_height, eaten_by=None):
-            # Jangan proses lagi kalau game sudah over (mencegah nyawa minus
             # akibat collision lain yang mungkin masih terdeteksi di frame yang sama)
             if _game_ref.game_over_screen.active:
                 return
@@ -83,6 +90,12 @@ class GameView(arcade.View):
             # (animasi mengecil / jeda 2 detik) — cegah trigger dobel
             if self.player_fish.is_being_eaten:
                 return
+            
+            if hasattr(self.eaten_screen, '_dead_sfx') and self.eaten_screen._dead_sfx:
+                try:
+                    arcade.play_sound(self.eaten_screen._dead_sfx, volume=1.0)
+                except Exception as e:
+                    print(f"Gagal memutar SFX Kematian di GameView: {e}") 
 
             # Reset skor dan state (sama seperti original)
             self.player_fish.score = max(0, self.player_fish.score - 9999)
@@ -98,7 +111,7 @@ class GameView(arcade.View):
                 except Exception:
                     pass
 
-            # Kurangi nyawa setiap kali dimakan
+
             _game_ref.lives = max(0, _game_ref.lives - 1)
 
             # Tentukan aksi yang akan dijalankan SETELAH seluruh urutan
@@ -174,6 +187,14 @@ class GameView(arcade.View):
             map_height = self.MAP_HEIGHT,
             surface_y  = self.water_boundary.surface_y,
         )
+        self.power_up_manager = PowerUpManager(
+            map_width  = self.MAP_WIDTH,
+            map_height = self.MAP_HEIGHT,
+            surface_y  = self.water_boundary.surface_y,
+        )
+
+        # ── Slot power-up main_fish (undian gambling + bar penyimpanan) ──
+        self.powerup_inventory = PowerUpInventory(self)
 
         self.mouse_screen_x = self.window.width  // 2
         self.mouse_screen_y = self.window.height // 2
@@ -185,6 +206,21 @@ class GameView(arcade.View):
         self.window.set_mouse_visible(False)
         self._confine_mouse()
 
+        # Jika kembali dari Layar Pause, tidak perlu reset musik
+        if self.is_resuming:
+            self.is_resuming = False  
+            if hasattr(self.window, "current_player") and self.window.current_player:
+                try:
+                    self.window.current_player.play()  
+                except Exception as e:
+                    print(f"Gagal me-resume musik: {e}")
+            return  
+
+        # Stop musik lama jika ada
+        if hasattr(self.window, "current_music") and self.window.current_music and self.window.current_player:
+            self.window.current_music.stop(self.window.current_player)
+
+        # Mainkan musik baru
         try:
             self.window.current_music = arcade.Sound(MUSIC_PATH)
             try:
@@ -193,13 +229,11 @@ class GameView(arcade.View):
             except Exception:
                 _mvol = 0.5
             self.window.current_player = self.window.current_music.play(volume=_mvol, loop=True)
-            
-            # --- TAMBAHKAN BARIS INI DI GAME.PY ---
             self.window.current_music_name = "game"
-            
-            print("🎵 Musik gameplay berhasil diputar!")
         except Exception as e:
             print(f"No music {MUSIC_PATH}. Error: {e}")
+
+        
 
     def on_hide_view(self):
         """Dipanggil otomatis saat view ini disembunyikan / diganti view lain."""
@@ -353,42 +387,7 @@ class GameView(arcade.View):
 
         return fishes
 
-    
-
-    def on_show_view(self):
-        arcade.set_background_color((10, 30, 50))
-        self.window.set_mouse_position(self.window.width // 2, self.window.height // 2)
-        self.window.set_mouse_visible(False)
-        self._confine_mouse()
-
-
-
-
-        if self.is_resuming:
-            self.is_resuming = False  
-            if hasattr(self.window, "current_player") and self.window.current_player:
-                try:
-                    self.window.current_player.play()  
-                except Exception as e:
-                    print(f"Gagal me-resume musik: {e}")
-            return  
         
-
-
-
-        if hasattr(self.window, "current_music") and self.window.current_music and self.window.current_player:
-            self.window.current_music.stop(self.window.current_player)
-
-        try:
-            self.window.current_music = arcade.Sound(MUSIC_PATH)
-            try:
-                from setting import load_settings as _ls
-                _mvol = _ls().get("music_volume", 0.5)
-            except Exception:
-                _mvol = 0.5
-            self.window.current_player = self.window.current_music.play(volume=_mvol, loop=True)
-        except Exception as e:
-            print(f"No music {MUSIC_PATH}. Error: {e}")
 
     
 
@@ -436,6 +435,9 @@ class GameView(arcade.View):
         # Gambar bugs di udara
         self.bug_manager.draw()
 
+        # Gambar kotak power-up (jatuh/mengapung/tenggelam/despawn)
+        self.power_up_manager.draw()
+
         for anim in self.eat_animations:
             anim.draw()
 
@@ -450,6 +452,10 @@ class GameView(arcade.View):
                 self.player_fish.draw()
 
         self.gui_camera.use()
+
+        minutes = int(self.total_time // 60)
+        seconds = int(self.total_time % 60)
+        time_string = f"{minutes:02d}:{seconds:02d}"
 
         player = self.player_fish
 
@@ -507,6 +513,40 @@ class GameView(arcade.View):
         arcade.draw_rect_outline(
             arcade.rect.XYWH(EVO_X + EVO_W/2, EVO_Y + EVO_H/2, EVO_W, EVO_H),
             arcade.color.WHITE, border_width=1
+        )
+
+        # ── TEKS POINTS & TIME (di bawah bar evolusi) ──
+        # Cuma teks huruf & angka polos (tanpa kotak/background), rata
+        # kanan mengikuti tepi kanan bar evolusi — strukturnya: POINTS
+        # (label+angka) lalu TIME (label+angka) di bawahnya.
+        # POINTS  = player.total_points, akumulasi permanen (tidak reset
+        #           saat dimakan predator), small=1 medium=5 huge=10 bug=1.
+        HUD_RIGHT = EVO_X + EVO_W
+
+        total_points = getattr(player, 'total_points', 0)
+
+        # -- POINTS --
+        arcade.draw_text(
+            "POINTS", x=HUD_RIGHT, y=EVO_Y - 16,
+            color=arcade.color.WHITE, font_size=13, bold=True,
+            anchor_x="right", anchor_y="center"
+        )
+        arcade.draw_text(
+            str(total_points), x=HUD_RIGHT, y=EVO_Y - 42,
+            color=(255, 215, 60), font_size=22, bold=True,
+            anchor_x="right", anchor_y="center"
+        )
+
+        # -- TIME (di bawah POINTS) --
+        arcade.draw_text(
+            "TIME", x=HUD_RIGHT, y=EVO_Y - 72,
+            color=arcade.color.WHITE, font_size=13, bold=True,
+            anchor_x="right", anchor_y="center"
+        )
+        arcade.draw_text(
+            time_string, x=HUD_RIGHT, y=EVO_Y - 98,
+            color=(255, 215, 60), font_size=18, bold=True,
+            anchor_x="right", anchor_y="center"
         )
 
         if player.kebal_timer > 0:
@@ -595,9 +635,9 @@ class GameView(arcade.View):
         for i in range(self.MAX_LIVES):
             lx = LIVES_X + i * (live_w + lives_gap)
             if i < self.lives:
-                l_color = (220, 40, 40)       # nyawa tersisa — merah
+                l_color = (220, 40, 40)       
             else:
-                l_color = (50, 20, 20, 180)   # nyawa hilang — gelap
+                l_color = (50, 20, 20, 180)   
             arcade.draw_rect_filled(
                 arcade.rect.XYWH(lx + live_w/2, LIVES_Y + LIVES_H/2, live_w, LIVES_H),
                 l_color
@@ -613,11 +653,13 @@ class GameView(arcade.View):
         self.dangerous_manager.draw_gui()
         self.water_boundary.draw_gui()
 
+        # Bar slot power-up & animasi undian (gambling)
+        self.powerup_inventory.draw(self.window.width, self.window.height)
+
         # Layar hitam saat dimakan (paling atas, menutupi segalanya)
         self.eaten_screen.draw(self.window.width, self.window.height)
 
-        # Notifikasi GAME OVER (paling atas dari segalanya, muncul setelah
-        # kotak "dimakan" selesai DAN nyawa sudah habis)
+
         self.game_over_screen.draw(self.window.width, self.window.height)
 
     def on_mouse_motion(self, x, y, dx, dy):
@@ -627,14 +669,17 @@ class GameView(arcade.View):
             self.game_over_screen.check_hover(x, y)
 
     def on_mouse_press(self, x, y, button, modifiers):
-        # Layar GAME OVER aktif: hanya tombol RESTART / MAIN MENU yang berfungsi
         if self.game_over_screen.active:
             if button == arcade.MOUSE_BUTTON_LEFT:
                 aksi = self.game_over_screen.check_click(x, y)
                 if aksi == "restart":
-                    self._restart_game()
+                    from loading_screen import LoadingScreen
+                    from game import GameView
+                    self.window.show_view(LoadingScreen(on_ready=lambda: GameView()))
                 elif aksi == "menu":
-                    self._go_to_menu()
+                    from loading_screen import LoadingScreen
+                    from menu import MenuView
+                    self.window.show_view(LoadingScreen(on_ready=lambda: MenuView()))
             return
 
         # Tidak bisa pakai ability saat dimakan (eaten screen aktif)
@@ -649,6 +694,15 @@ class GameView(arcade.View):
         if button == arcade.MOUSE_BUTTON_RIGHT:
             self.player_fish.stop_suck()
 
+    def _on_powerup_box_pickup(self):
+        """Callback untuk power_up_manager saat main_fish menabrak kotak
+        power-up. Mengembalikan True (kotak dikonsumsi) hanya kalau slot
+        power-up sedang kosong & tidak sedang animasi undian."""
+        if self.powerup_inventory.can_pickup():
+            self.powerup_inventory.start_gamble()
+            return True
+        return False
+
     def _do_respawn(self):
         """Callback: dipanggil EatenScreen saat 4 detik selesai."""
         self.player_fish.is_being_eaten = False
@@ -661,10 +715,22 @@ class GameView(arcade.View):
         self.window.set_mouse_position(self.window.width // 2, self.window.height // 2)
 
     def _trigger_game_over(self):
-        """Callback: dipanggil EatenScreen setelah kotak 'dimakan' selesai
-        DAN nyawa sudah habis (0). Menampilkan notifikasi GAME OVER."""
         self.player_fish.is_being_eaten = False
-        self.game_over_screen.start()
+
+        # Cek highscore SEBELUM data sesi ini disimpan ke csv, supaya skor
+        # sesi ini tidak ikut dibandingkan dengan dirinya sendiri.
+        from gameover import check_is_new_highscore
+        total_points = getattr(self.player_fish, 'total_points', 0)
+        is_new_hs = check_is_new_highscore(total_points)
+
+        self.game_over_screen.start(
+            total_points=total_points,
+            total_time=self.total_time,
+            is_new_highscore=is_new_hs,
+        )
+        # Simpan Total Time & Total Point sesi ini ke username.csv supaya
+        # muncul di papan highscore (lihat highscore.py).
+        self._save_highscore_to_csv()
         self._release_mouse()
         self.window.set_mouse_visible(True)
         if hasattr(self.window, "current_player") and self.window.current_player:
@@ -672,6 +738,62 @@ class GameView(arcade.View):
                 self.window.current_player.pause()
             except Exception:
                 pass
+
+    def _save_highscore_to_csv(self):
+        """Simpan Total Time & Total Point sesi ini ke username.csv, di
+        kolom 'Time' & 'Freeplay Score' — dipakai highscore.py untuk
+        menampilkan papan skor.
+
+        User aktif = baris data PERTAMA di username.csv (name.py selalu
+        menaruh user yang sedang dipakai di baris paling atas). Skor lama
+        hanya ditimpa kalau skor baru LEBIH TINGGI atau SAMA, supaya
+        perilakunya benar-benar "highscore" (rekor tertinggi), bukan
+        sekadar mencatat skor sesi terakhir.
+        """
+        FILE_NAME = "username.csv"
+        if not os.path.exists(FILE_NAME):
+            return
+
+        try:
+            with open(FILE_NAME, mode='r', newline='', encoding='utf-8') as f:
+                reader = list(csv.reader(f))
+        except Exception as e:
+            print(f"Gagal membaca username.csv: {e}")
+            return
+
+        if len(reader) < 2 or not reader[1] or not reader[1][0].strip():
+            return  # tidak ada user aktif untuk disimpan skornya
+
+        header = reader[0]
+        rows = reader[1:]
+
+        active_row = list(rows[0])
+        while len(active_row) < 4:
+            active_row.append("-")
+
+        total_points = int(getattr(self.player_fish, 'total_points', 0))
+        total_time = self.total_time
+
+        try:
+            prev_best = int(active_row[3])
+        except (ValueError, IndexError):
+            prev_best = -1
+
+        if total_points >= prev_best:
+            minutes = int(total_time // 60)
+            seconds = int(total_time % 60)
+            active_row[2] = f"{minutes:02d}:{seconds:02d}"
+            active_row[3] = str(total_points)
+            rows[0] = active_row
+
+            try:
+                with open(FILE_NAME, mode='w', newline='', encoding='utf-8') as f:
+                    writer = csv.writer(f)
+                    writer.writerow(header)
+                    for r in rows:
+                        writer.writerow(r)
+            except Exception as e:
+                print(f"Gagal menyimpan highscore ke username.csv: {e}")
 
     def _restart_game(self):
         """Tombol RESTART pada layar Game Over: mulai game baru dari awal."""
@@ -690,44 +812,65 @@ class GameView(arcade.View):
         # Update layar "dimakan" (timer 4 detik)
         self.eaten_screen.update()
 
+        # Update layar Game Over (animasi count-up angka poin & banner highscore)
+        self.game_over_screen.update()
+
         # Update animasi respawn (jatuh dari atas)
         self.respawn_anim.update()
 
+        # Update slot power-up (animasi undian & timer efek aktif)
+        self.powerup_inventory.update()
+        freeze_active = self.powerup_inventory.is_freeze_active
+
+        if not self.game_over_screen.active and not self.eaten_screen.active:
+            self.total_time += delta_time
+
         # ── Update NPC dan animasi tetap jalan saat eaten screen aktif ──
         # (ikan lain tetap bergerak, hanya player yang di-freeze)
+        # Kalau FREEZE power-up aktif, semua NPC ikan berhenti bergerak
+        # total (hanya main_fish yang tetap bisa bergerak bebas).
         huge_list     = [f for f in self.enemy_list if f.__class__.__name__ == "hugefish"]
         small_list    = [f for f in self.enemy_list if f.__class__.__name__ == "smallfish"]
         jumping_list  = [f for f in self.enemy_list if f.__class__.__name__ == "jumpingsmallfish"]
 
-        for fish in self.enemy_list:
-            name = fish.__class__.__name__
-            if name == "smallfish":
-                fish.update(player=self.player_fish, huge_list=huge_list, all_small=small_list)
-            elif name == "jumpingsmallfish":
-                fish.update(player=self.player_fish, huge_list=huge_list, all_small=jumping_list,
-                            bugs=self.bug_manager.bugs, eat_animations=self.eat_animations)
-            elif name == "mediumfish":
-                fish.update(player=self.player_fish, huge_list=huge_list)
-            elif name == "speedmediumfish":
-                fish.update(player=self.player_fish, huge_list=huge_list)
-            elif name == "hugefish":
-                fish.update(player=self.player_fish)
-            else:
-                fish.update()
+        if not freeze_active:
+            for fish in self.enemy_list:
+                name = fish.__class__.__name__
+                if name == "smallfish":
+                    fish.update(player=self.player_fish, huge_list=huge_list, all_small=small_list)
+                elif name == "jumpingsmallfish":
+                    fish.update(player=self.player_fish, huge_list=huge_list, all_small=jumping_list,
+                                bugs=self.bug_manager.bugs, eat_animations=self.eat_animations)
+                elif name == "mediumfish":
+                    fish.update(player=self.player_fish, huge_list=huge_list)
+                elif name == "speedmediumfish":
+                    fish.update(player=self.player_fish, huge_list=huge_list)
+                elif name == "hugefish":
+                    fish.update(player=self.player_fish)
+                else:
+                    fish.update()
 
         for anim in self.eat_animations:
             anim.update()
         self.eat_animations = [a for a in self.eat_animations if not a.done]
 
-        self.foodchain.update(
-            self.enemy_list, self.player_fish,
-            self.MAP_WIDTH, self.MAP_HEIGHT, self.eat_animations
-        )
+        if not freeze_active:
+            self.foodchain.update(
+                self.enemy_list, self.player_fish,
+                self.MAP_WIDTH, self.MAP_HEIGHT, self.eat_animations
+            )
 
         # Dangerous fish selalu bergerak — update DAN kamera selalu diproses
-        self.dangerous_manager.update(self.camera, self.MAP_WIDTH, self.MAP_HEIGHT,
-                                      enemy_list=self.enemy_list,
-                                      eat_animations=self.eat_animations)
+        # total_time & status player dipakai untuk difficulty scaling:
+        # makin lama main & makin besar status player (MEDIUM/HUGE),
+        # makin banyak dangerous fish ambient yang muncul (tanpa warning).
+        # Kecuali FREEZE power-up aktif — dangerous fish ikut berhenti total.
+        if not freeze_active:
+            self.dangerous_manager.update(self.camera, self.MAP_WIDTH, self.MAP_HEIGHT,
+                                          enemy_list=self.enemy_list,
+                                          eat_animations=self.eat_animations,
+                                          total_time=self.total_time,
+                                          player_status=self.player_fish.status)
 
         # Kamera selalu mengikuti player (walaupun eaten screen aktif)
         _W = self.window.width; _H = self.window.height
@@ -737,6 +880,12 @@ class GameView(arcade.View):
             self.camera.position[0] + (_tx - self.camera.position[0]) * 0.1,
             self.camera.position[1] + (_ty - self.camera.position[1]) * 0.1,
         )
+
+
+        if self.player_fish.is_invulnerable:
+            self.player_fish.kebal_timer -= 1
+            if self.player_fish.kebal_timer <= 0:
+                self.player_fish.is_invulnerable = False
 
         # ── Urutan "main fish dimakan" ──
         # Tahap 1: animasi mengecil menuju predator masih berjalan.
@@ -775,6 +924,8 @@ class GameView(arcade.View):
         # player.update() tetap dipanggil tapi posisi sudah ditangani di _update_in_air
         if not self.water_boundary.in_air:
             self.player_fish.update(target_world_x, target_world_y, self.MAP_WIDTH, self.MAP_HEIGHT)
+            # FAST power-up — dorongan ekstra sebanding kecepatan saat ini
+            self.powerup_inventory.apply_fast_boost()
         else:
             # Di udara: hanya update kebal/blink, skip gerak normal
             self.player_fish._update_kebal_blink()
@@ -788,7 +939,8 @@ class GameView(arcade.View):
         check_collision_and_respawn(
             self.player_fish, self.enemy_list,
             self.MAP_WIDTH, self.MAP_HEIGHT,
-            self.window, self.eat_animations, jarak_minimum=120
+            self.window, self.eat_animations, jarak_minimum=120,
+            chomp_active=self.powerup_inventory.is_chomp_active,
         )
 
         dimakan_suck = self.player_fish.update_suck(
@@ -811,6 +963,7 @@ class GameView(arcade.View):
                 if fish in self.enemy_list:
                     self.enemy_list.remove(fish)
                 self.player_fish.score += _rnd.randint(1, 3)
+                self.player_fish.total_points = getattr(self.player_fish, 'total_points', 0) + 1
             else:
                 # Ikan biasa — respawn ke posisi baru di area air
                 fish.x = _rnd.uniform(100, self.MAP_WIDTH - 100)
@@ -820,12 +973,15 @@ class GameView(arcade.View):
                     fish.target_y = _rnd.uniform(100, _water_max_y)
                 if nama in ("smallfish", "jumpingsmallfish"):
                     self.player_fish.score += _rnd.randint(1, 3)
+                    self.player_fish.total_points = getattr(self.player_fish, 'total_points', 0) + 1
                 elif nama in ("mediumfish", "speedmediumfish"):
                     if self.player_fish.status != "SMALL":
                         self.player_fish.score += _rnd.randint(5, 7)
+                        self.player_fish.total_points = getattr(self.player_fish, 'total_points', 0) + 5
                 elif nama == "hugefish":
                     if self.player_fish.status == "HUGE":
                         self.player_fish.score += _rnd.randint(15, 20)
+                        self.player_fish.total_points = getattr(self.player_fish, 'total_points', 0) + 10
 
             self.player_fish.check_evolution()
 
@@ -844,21 +1000,42 @@ class GameView(arcade.View):
             )
 
         self.dangerous_manager.check_collision(
-            self.player_fish, self.window, self.window.width, self.window.height, self.MAP_WIDTH, self.MAP_HEIGHT
+            self.player_fish, self.window, self.window.width, self.window.height, self.MAP_WIDTH, self.MAP_HEIGHT,
+            chomp_active=self.powerup_inventory.is_chomp_active,
+            eat_animations=self.eat_animations,
         )
 
-        # Update bugs di udara
-        self.bug_manager.update(self.player_fish, self.water_boundary.in_air, self.eat_animations)
+        # Update kotak power-up (jatuh/mengapung/tenggelam/despawn) & cek tabrakan
+        self.power_up_manager.update()
+        self.power_up_manager.check_and_handle_collisions(
+            self.player_fish, self.enemy_list,
+            dangerous_manager=self.dangerous_manager,
+            on_player_pickup=self._on_powerup_box_pickup,
+        )
+
+        # Update bugs di udara — ikut freeze kalau FREEZE power-up aktif
+        if not freeze_active:
+            self.bug_manager.update(self.player_fish, self.water_boundary.in_air, self.eat_animations)
         bug_score = self.bug_manager.consume_score()
         if bug_score > 0:
             self.player_fish.score += bug_score
             self.player_fish.check_evolution()
+        bug_points = self.bug_manager.consume_points()
+        if bug_points > 0:
+            # POINTS HUD — akumulasi permanen, bug = 1 poin per ekor
+            self.player_fish.total_points = getattr(self.player_fish, 'total_points', 0) + bug_points
 
 
 
     def on_key_press(self, key, modifiers):
         # Layar GAME OVER aktif: nonaktifkan pause (ESC) sampai user memilih aksi
         if self.game_over_screen.active:
+            return
+
+        if key == arcade.key.E:
+            # Tidak bisa pakai power-up saat sedang dimakan (eaten screen aktif)
+            if not self.eaten_screen.active:
+                self.powerup_inventory.use_held()
             return
 
         if key == arcade.key.ESCAPE:
@@ -880,6 +1057,10 @@ class GameView(arcade.View):
                     self.window.current_player.pause()  
                 except Exception:
                     pass
+
+            # Pause SEMUA sfx looping/ambient lain (outside, bubble, suck,
+            # jumpscare dangerous fish, dll) — bukan cuma musik background.
+            audio_registry.pause_all()
 
             pause_view = pause(self)
             self.window.show_view(pause_view)

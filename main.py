@@ -1,18 +1,18 @@
 import arcade
 import os
 import csv 
-from name import name
+from name import name 
 from menu import MenuView
 
 WIDTH  = 800
 HEIGHT = 560
-TITLE  = "Feeding Frenzy"
+TITLE  = "FeastQuarium"
 FILE_NAME = "username.csv"
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-MUSIC_PATH = os.path.join(BASE_DIR, "assets", "audio", "songs", "menu", "Kelp Panic.mp3")
+MUSIC_PATH = os.path.join(BASE_DIR, "assets", "audio", "songs", "menu", "menu1.mp3")
 
-
+ 
 def main():
     try:
         from setting import load_settings
@@ -23,7 +23,7 @@ def main():
 
     if _mode == "fixed":
         _init_w, _init_h = 1280, 720 
-    else:
+    else: 
         _init_w, _init_h = 800, 560  
 
     window = arcade.Window(_init_w, _init_h, TITLE) 
@@ -50,7 +50,11 @@ def main():
     else:
         first_view = name()
     
-    window.show_view(first_view)
+    from splash import SplashScreen
+    from loading_screen import LoadingScreen
+    window.show_view(SplashScreen(
+        on_finish=lambda: LoadingScreen(on_ready=lambda: first_view)
+    ))
     arcade.run()
 
 

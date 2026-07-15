@@ -18,6 +18,8 @@ BASE_DIR  = os.path.dirname(os.path.abspath(__file__))
 BTN_SFX_DIR = os.path.join(BASE_DIR, "assets", "sfx", "button_sfx")
 
 
+
+
 def load_settings():
     if os.path.exists(SETTINGS_FILE):
         try:
@@ -72,9 +74,9 @@ def play_btn_sfx(volume=0.6):
 # ── Helper tombol ──────────────────────────────────────────────────────────────
 
 class _Btn:
-    C_NORMAL = (40, 130, 70)
-    C_HOVER  = (60, 180, 100)
-    C_ACTIVE = (30, 90, 190)
+    C_NORMAL = (30, 28, 24)
+    C_HOVER  = (78, 62, 38)
+    C_ACTIVE = (198, 150, 76)
 
     def __init__(self, cx, cy, w, h, label):
         self.cx = cx; self.cy = cy
@@ -90,9 +92,9 @@ class _Btn:
         col = self.C_ACTIVE if active else (self.C_HOVER if self.hovered else self.C_NORMAL)
         arcade.draw_rect_filled(arcade.rect.XYWH(self.cx, self.cy, self.w, self.h), col)
         arcade.draw_rect_outline(arcade.rect.XYWH(self.cx, self.cy, self.w, self.h),
-                                 arcade.color.WHITE, border_width=1)
+                                 (255, 255, 255), border_width=1)
         fs = 18 if len(self.label) <= 6 else 13
-        arcade.draw_text(self.label, self.cx, self.cy, arcade.color.WHITE,
+        arcade.draw_text(self.label, self.cx, self.cy, (255, 255, 255),
                          font_size=fs, bold=True,
                          anchor_x="center", anchor_y="center")
 
@@ -123,6 +125,23 @@ class setting(arcade.View):
             self.btn_save, self.btn_back,
         ]
 
+    def _play_click_sfx(self):
+        try:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            sfx_path = os.path.join(base_dir, "assets", "sfx", "button_sfx", "4.mp3")
+            click_sound = arcade.load_sound(sfx_path)
+            
+            # Ambil setelan volume sfx dari file setting bawaan game Anda
+            try:
+                from setting import load_settings as _ls
+                _svol = _ls().get("sfx_volume", 0.0)
+            except Exception:
+                _svol = 0.0
+                
+            arcade.play_sound(click_sound, volume=_svol)
+        except Exception as e:
+            print(f"Gagal memutar SFX tombol: {e}")
+
     def _update_pos(self):
         CX = self.window.width  // 2
         CY = self.window.height // 2
@@ -142,7 +161,7 @@ class setting(arcade.View):
     # ── lifecycle ──────────────────────────────────────────────────────────────
 
     def on_show_view(self):
-        arcade.set_background_color((10, 10, 15))
+        arcade.set_background_color((9, 26, 45))
         self.window.set_mouse_visible(True)
         self._update_pos()
 
@@ -159,12 +178,12 @@ class setting(arcade.View):
 
         # Judul
         arcade.draw_text("SETTINGS", CX, CY + 220,
-                         arcade.color.YELLOW, font_size=26, bold=True,
+                         (216, 178, 92), font_size=26, bold=True,
                          anchor_x="center", anchor_y="center")
 
         # ── SFX ──
         arcade.draw_text("SFX VOLUME", CX, CY + 130,
-                         arcade.color.WHITE, font_size=13, bold=True,
+                         (238, 230, 210), font_size=13, bold=True,
                          anchor_x="center", anchor_y="center")
         self._draw_bar(CX, CY + 95, self.data["sfx_volume"])
         self.sfx_minus.draw()
@@ -172,7 +191,7 @@ class setting(arcade.View):
 
         # ── MUSIK ──
         arcade.draw_text("MUSIC VOLUME", CX, CY + 55,
-                         arcade.color.WHITE, font_size=13, bold=True,
+                         (238, 230, 210), font_size=13, bold=True,
                          anchor_x="center", anchor_y="center")
         self._draw_bar(CX, CY + 20, self.data["music_volume"])
         self.mus_minus.draw()
@@ -180,7 +199,7 @@ class setting(arcade.View):
 
         # ── DISPLAY ──
         arcade.draw_text("DISPLAY MODE", CX, CY - 40,
-                         arcade.color.WHITE, font_size=13, bold=True,
+                         (238, 230, 210), font_size=13, bold=True,
                          anchor_x="center", anchor_y="center")
         dm = self.data["display_mode"]
         self.btn_win.draw(active=(dm == "windowed"))
@@ -201,10 +220,10 @@ class setting(arcade.View):
 
         for i in range(steps):
             bx = sx + i * (bw + gap) + bw / 2
-            col = (60, 200, 100) if i < filled else (35, 35, 50)
+            col = (66, 158, 132) if i < filled else (24, 40, 54)
             arcade.draw_rect_filled(arcade.rect.XYWH(bx, cy, bw, bh), col)
             arcade.draw_rect_outline(arcade.rect.XYWH(bx, cy, bw, bh),
-                                     (100, 100, 120), border_width=1)
+                                     (150, 138, 108), border_width=1)
 
         arcade.draw_text(f"{int(value * 100)}%", cx, cy - bh // 2 - 11,
                          arcade.color.LIGHT_GRAY, font_size=10,
@@ -218,6 +237,7 @@ class setting(arcade.View):
 
     def on_mouse_press(self, x, y, button, modifiers):
         if button != arcade.MOUSE_BUTTON_LEFT:
+            self._play_click_sfx()
             return
 
         STEP = 0.1
@@ -239,24 +259,30 @@ class setting(arcade.View):
             self._apply_music_vol()
 
         elif self.btn_win.hit(x, y):
+            self._play_click_sfx()
             self.data["display_mode"] = "windowed"
 
         elif self.btn_fixed.hit(x, y):
+            self._play_click_sfx()
             self.data["display_mode"] = "fixed"
 
         elif self.btn_full.hit(x, y):
+            self._play_click_sfx()
             self.data["display_mode"] = "fullscreen"
 
         elif self.btn_save.hit(x, y):
+            self._play_click_sfx()
             save_settings(self.data)
             apply_display(self.window, self.data["display_mode"])
             self._go_menu()
 
         elif self.btn_back.hit(x, y):
+            self._play_click_sfx()
             self._go_menu()
 
     def on_key_press(self, key, modifiers):
         if key == arcade.key.ESCAPE:
+            self._play_click_sfx()
             self._go_menu()
 
     # ── helpers ────────────────────────────────────────────────────────────────

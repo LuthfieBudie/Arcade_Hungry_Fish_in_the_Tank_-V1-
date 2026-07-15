@@ -1,7 +1,7 @@
 import arcade
 import os    
 import csv
-from game import GameView
+
 
 WIDTH  = 800
 HEIGHT = 560
@@ -41,28 +41,98 @@ class MenuView(arcade.View):
         self.settingbtn_hovered = False
         self.scorebtn_hovered   = False
 
+        # === Ukuran & posisi gambar logo (dalam RASIO, bukan pixel tetap) ===
+        # Kenapa rasio? Supaya logo tetap proporsional di ukuran window
+        # berapa pun (fullscreen, 1280x720, 800x500, dll), karena dihitung
+        # ulang dari lebar/tinggi window setiap kali window di-resize.
+
+        # Ukuran logo = persentase dari lebar/tinggi window
+        self.bg_w_ratio = 0.85     # lebar logo = 55% dari lebar window
+        self.bg_h_ratio = 0.95     # tinggi logo = 30% dari tinggi window
+
+        # Posisi logo = pergeseran dari TITIK TENGAH window (0,0 = tengah)
+        # Nilai negatif x = geser ke KIRI, positif = geser ke KANAN
+        # Nilai positif y = geser ke ATAS,  negatif = geser ke BAWAH
+        self.bg_offset_x_ratio = 0.0    # 0 = tetap di tengah horizontal
+        self.bg_offset_y_ratio = 0.25   # geser ke atas sebesar 30% tinggi window
+
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+
+        # Buat SpriteList untuk menampung sprite background agar kompatibel dengan Arcade 3.0+
+        self.background_list = arcade.SpriteList()
+
+        # Inisialisasi Background (logo.png)
+        bg_path = os.path.join(base_dir, "assets", "image", "logo", "logo.png")
+        if os.path.exists(bg_path):
+            self.background = arcade.Sprite(bg_path)
+            self.background_list.append(self.background)
+        else:
+            self.background = None
+
+
+
     def _update_positions(self):
         """Hitung ulang posisi tombol berdasarkan ukuran window saat ini."""
         CX = self.window.width  // 2
         CY = self.window.height // 2
+
         self.btnstart_x   = CX
         self.btnstart_y   = CY - 20
+
         self.exitbtn_x    = CX
         self.exitbtn_y    = CY - 260
+
         self.helpbtn_x    = CX
         self.helpbtn_y    = CY - 200
+
         self.scorebtn_x   = CX
         self.scorebtn_y   = CY - 80
+
         self.settingbtn_x = CX
         self.settingbtn_y = CY - 140
+        
         self.namebtn_x    = CX + 205
         self.namebtn_y    = CY - 20
+
+        # Atur ukuran & posisi background berdasarkan RASIO ukuran window saat ini
+        # (JANGAN ubah self.window.width/height, itu akan mengubah ukuran
+        # window game itu sendiri, bukan ukuran gambar!)
+        if self.background:
+            self.background.center_x = CX + (self.window.width  * self.bg_offset_x_ratio)
+            self.background.center_y = CY + (self.window.height * self.bg_offset_y_ratio)
+            self.background.width  = self.window.width  * self.bg_w_ratio
+            self.background.height = self.window.height * self.bg_h_ratio
+
+
+
+    def on_resize(self, width, height):
+        super().on_resize(width, height)
+        self._update_positions()
+
+
+    def _play_click_sfx(self):
+        try:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            sfx_path = os.path.join(base_dir, "assets", "sfx", "button_sfx", "4.mp3")
+            click_sound = arcade.load_sound(sfx_path)
+            
+            # Ambil setelan volume sfx dari file setting bawaan game Anda
+            try:
+                from setting import load_settings as _ls
+                _svol = _ls().get("sfx_volume", 0.0)
+            except Exception:
+                _svol = 0.0
+                
+            arcade.play_sound(click_sound, volume=_svol)
+        except Exception as e:
+            print(f"Gagal memutar SFX tombol: {e}")
+
 
     def _dummy(self):
         pass  # spacer
 
     def on_show_view(self):
-        arcade.set_background_color((10, 30, 50))
+        arcade.set_background_color((9, 26, 45))
         self.window.set_mouse_visible(True)
         self._update_positions()
 
@@ -87,7 +157,7 @@ class MenuView(arcade.View):
 
         try:
             base_dir = os.path.dirname(os.path.abspath(__file__))
-            menu_music_path = os.path.join(base_dir, "assets", "music", "menu", "Kelp Panic.mp3")
+            menu_music_path = os.path.join(base_dir, "assets", "music", "menu", "menu1.mp3")
             
             self.window.current_music = arcade.Sound(menu_music_path)
             try:
@@ -110,47 +180,45 @@ class MenuView(arcade.View):
     def on_draw(self):
         self.clear()
         # PENTING: reset kamera ke default setiap kali menggambar.
-        # Kalau tidak, kamera custom yang ditinggalkan oleh GameView
-        # (self.camera / self.gui_camera) tetap aktif dan membuat
-        # semua koordinat tombol di menu ini salah proyeksi
-        # (tombol jadi menumpuk/berantakan), terutama setelah ukuran
-        # window diubah lewat Settings.
         self.window.default_camera.use()
         self._update_positions()
 
+        
 
-
+        # Menggambar Background
+        if self.background:
+            self.background_list.draw()
 
 
         if self.btnstart_hovered:
-            btnstart_color    = (60, 180, 100)   # Hijau terang saat hover
+            btnstart_color    = (78, 62, 38)     # Perunggu hangat saat hover
         else:
-            btnstart_color    = (40, 130, 70)    # Hijau normal
+            btnstart_color    = (30, 28, 24)     # Charcoal gelap, senada tekstur logo
 
         if self.exitbtn_hovered:
-            exitbtn_color    = (60, 180, 100)   # Hijau terang saat hover
+            exitbtn_color    = (78, 62, 38)
         else:
-            exitbtn_color    = (40, 130, 70)    # Hijau normal
+            exitbtn_color    = (30, 28, 24)
 
         if self.helpbtn_hovered:
-            helpbtn_color    = (60, 180, 100)   # Hijau terang saat hover
+            helpbtn_color    = (78, 62, 38)
         else:
-            helpbtn_color    = (40, 130, 70)    # Hijau normal
+            helpbtn_color    = (30, 28, 24)
 
         if self.scorebtn_hovered:
-            scorebtn_color    = (60, 180, 100)   # Hijau terang saat hover
+            scorebtn_color    = (78, 62, 38)
         else:
-            scorebtn_color    = (40, 130, 70)    # Hijau normal
+            scorebtn_color    = (30, 28, 24)
 
         if self.settingbtn_hovered:
-            settingbtn_color    = (60, 180, 100)   # Hijau terang saat hover
+            settingbtn_color    = (78, 62, 38)
         else:
-            settingbtn_color    = (40, 130, 70)    # Hijau normal
+            settingbtn_color    = (30, 28, 24)
 
         if self.namebtn_hovered:
-            namebtn_color    = (60, 180, 100)   # Hijau terang saat hover
+            namebtn_color    = (78, 62, 38)
         else:
-            namebtn_color    = (40, 130, 70)    # Hijau normal
+            namebtn_color    = (30, 28, 24)
 
 
 
@@ -161,34 +229,68 @@ class MenuView(arcade.View):
 
 
         # Gambar kotak tombol
+
+        outline_color = (255, 255, 255) # Warna outline: putih, persis seperti logo
+        outline_thick = 3
+
         arcade.draw_rect_filled(
             arcade.rect.XYWH(self.btnstart_x, self.btnstart_y, self.btnstart_w, self.btnstart_h),
             btnstart_color,
+        )
+        arcade.draw_rect_outline(
+            arcade.rect.XYWH(self.btnstart_x, self.btnstart_y, self.btnstart_w, self.btnstart_h),
+            outline_color,
+            border_width=outline_thick
         )
 
         arcade.draw_rect_filled(
             arcade.rect.XYWH(self.exitbtn_x, self.exitbtn_y, self.exitbtn_w, self.exitbtn_h),
             exitbtn_color,
         )
+        arcade.draw_rect_outline(
+            arcade.rect.XYWH(self.exitbtn_x, self.exitbtn_y, self.exitbtn_w, self.exitbtn_h),
+            outline_color,
+            border_width=outline_thick
+        )
 
         arcade.draw_rect_filled(
             arcade.rect.XYWH(self.helpbtn_x, self.helpbtn_y, self.helpbtn_w, self.helpbtn_h),
             helpbtn_color,
+        )
+        arcade.draw_rect_outline(
+            arcade.rect.XYWH(self.helpbtn_x, self.helpbtn_y, self.helpbtn_w, self.helpbtn_h),
+            outline_color,
+            border_width=outline_thick
         )
 
         arcade.draw_rect_filled(
             arcade.rect.XYWH(self.scorebtn_x, self.scorebtn_y, self.scorebtn_w, self.scorebtn_h),
             scorebtn_color,
         )
+        arcade.draw_rect_outline(
+            arcade.rect.XYWH(self.scorebtn_x, self.scorebtn_y, self.scorebtn_w, self.scorebtn_h),
+            outline_color,
+            border_width=outline_thick
+        )
 
         arcade.draw_rect_filled(
             arcade.rect.XYWH(self.settingbtn_x, self.settingbtn_y, self.settingbtn_w, self.settingbtn_h),
             settingbtn_color,
         )
+        arcade.draw_rect_outline(
+            arcade.rect.XYWH(self.settingbtn_x, self.settingbtn_y, self.settingbtn_w, self.settingbtn_h),
+            outline_color,
+            border_width=outline_thick
+        )
 
         arcade.draw_rect_filled(
             arcade.rect.XYWH(self.namebtn_x, self.namebtn_y, self.namebtn_w, self.namebtn_h),
             namebtn_color,
+        )
+        arcade.draw_rect_outline(
+            arcade.rect.XYWH(self.namebtn_x, self.namebtn_y, self.namebtn_w, self.namebtn_h),
+            outline_color,
+            border_width=outline_thick
         )
 
 
@@ -199,7 +301,7 @@ class MenuView(arcade.View):
             "START",
             x=self.btnstart_x,
             y=self.btnstart_y,
-            color=arcade.color.WHITE,
+            color=(255, 255, 255),
             font_size=22,
             bold=True,
             anchor_x="center",
@@ -211,7 +313,7 @@ class MenuView(arcade.View):
             "QUIT",
             x=self.exitbtn_x,
             y=self.exitbtn_y,
-            color=arcade.color.WHITE,
+            color=(255, 255, 255),
             font_size=22,
             bold=True,
             anchor_x="center",
@@ -223,7 +325,7 @@ class MenuView(arcade.View):
             "HELP",
             x=self.helpbtn_x,
             y=self.helpbtn_y,
-            color=arcade.color.WHITE,
+            color=(255, 255, 255),
             font_size=22,
             bold=True,
             anchor_x="center",
@@ -235,7 +337,7 @@ class MenuView(arcade.View):
             "HIGHSCORE",
             x=self.scorebtn_x,
             y=self.scorebtn_y,
-            color=arcade.color.WHITE,
+            color=(255, 255, 255),
             font_size=22,
             bold=True,
             anchor_x="center",
@@ -247,7 +349,7 @@ class MenuView(arcade.View):
             "SETTING",
             x=self.settingbtn_x,
             y=self.settingbtn_y,
-            color=arcade.color.WHITE,
+            color=(255, 255, 255),
             font_size=22,
             bold=True,
             anchor_x="center",
@@ -258,7 +360,7 @@ class MenuView(arcade.View):
             self.player_name,
             x=self.namebtn_x,
             y=self.namebtn_y,
-            color=arcade.color.WHITE,
+            color=(255, 255, 255),
             font_size=22,
             bold=True,
             anchor_x="center",
@@ -343,31 +445,36 @@ class MenuView(arcade.View):
 
 
     def on_mouse_press(self, x, y, button, modifiers):
-        """Kalau tombol START diklik, pindah ke GameView."""
         if button == arcade.MOUSE_BUTTON_LEFT: 
             if self._is_over_button(x, y):
-                game_view = GameView()
-                self.window.show_view(game_view)
+                self._play_click_sfx()
+                from loading_screen import LoadingScreen
+                self.window.show_view(LoadingScreen())
             
             elif self._is_over_exit_button(x, y):
+                self._play_click_sfx()
                 arcade.exit()
 
             elif self._is_over_help_button(x, y):
+                self._play_click_sfx()
                 from help import help
                 help_view = help()
                 self.window.show_view(help_view) 
 
             elif self._is_over_score_button(x, y):
+                self._play_click_sfx()
                 from highscore import score
                 score_view = score()
                 self.window.show_view(score_view) 
 
             elif self._is_over_setting_button(x, y):
+                self._play_click_sfx()
                 from setting import setting
                 setting_view = setting()
                 self.window.show_view(setting_view)
 
             elif self._is_over_name_button(x, y):
+                self._play_click_sfx()
                 from name import name
                 name_view = name()
                 self.window.show_view(name_view)

@@ -128,7 +128,7 @@ class PlayerEatenAnimation:
 
 
 
-def check_collision_and_respawn(player, enemy_list, width, height, window, eat_animations, jarak_minimum=80):
+def check_collision_and_respawn(player, enemy_list, width, height, window, eat_animations, jarak_minimum=80, chomp_active=False):
     to_remove = []
 
 
@@ -179,7 +179,7 @@ def check_collision_and_respawn(player, enemy_list, width, height, window, eat_a
 
 
         if nama_kelas == "hugefish":
-            if player.status != "HUGE":
+            if player.status != "HUGE" and not chomp_active:
                 # Player dimakan → animasi respawn dari atas
                 player.score = max(0, player.score - 9999)
                 spawn_x = width // 2
@@ -188,7 +188,8 @@ def check_collision_and_respawn(player, enemy_list, width, height, window, eat_a
                 window.set_mouse_position(400, 280)
                 return
             else:
-                random_point = random.randint(15, 20)
+                random_point = random.randint(10, 15)
+                fixed_points = 10   # POINTS HUD: huge fish = 10
 
 
 
@@ -196,7 +197,7 @@ def check_collision_and_respawn(player, enemy_list, width, height, window, eat_a
 
 
         elif nama_kelas in ("mediumfish", "speedmediumfish"):
-            if player.status == "SMALL":
+            if player.status == "SMALL" and not chomp_active:
                 player.score = max(0, player.score - 9999)
                 spawn_x = width // 2
                 spawn_y = height // 2
@@ -205,16 +206,20 @@ def check_collision_and_respawn(player, enemy_list, width, height, window, eat_a
                 return
             else:
                 random_point = random.randint(5, 7)
-
+                fixed_points = 5    # POINTS HUD: medium fish = 5
 
 
 
 
         else:
             random_point = random.randint(1, 3)
+            fixed_points = 1        # POINTS HUD: small fish = 1
+
 
         # Tambah skor & cek evolusi
         player.score += random_point
+        # POINTS HUD — akumulasi permanen, tidak pernah direset walau dimakan
+        player.total_points = getattr(player, 'total_points', 0) + fixed_points
         player.check_evolution()
 
 

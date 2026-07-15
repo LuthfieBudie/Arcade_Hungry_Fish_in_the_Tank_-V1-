@@ -1,6 +1,9 @@
 # main_fish.py
 import arcade
 import math
+import os
+
+import audio_registry
 from Fish_Evolution import small_evo
 from Fish_Evolution import medium_evo
 from Fish_Evolution import huge_evo
@@ -17,6 +20,8 @@ class mainfish:
         self.status = "SMALL"
         self.width  = 60
         self.height = 30
+
+        self.total_points = 0
 
         self.last_dir_x = 1
         self.is_dashing = False
@@ -69,6 +74,7 @@ class mainfish:
         # Kekuatan & jangkauan hisap
         self.SUCK_RANGE    = 280
         self.SUCK_CONE_DEG = 55
+        self.suck_sound_player = None
 
 
 
@@ -126,6 +132,16 @@ class mainfish:
         # Batalkan ability aktif
         self._cancel_dash()
         self.is_sucking = False
+        # Sama seperti dash, hentikan juga SUARA suck yang mungkin masih
+        # jalan (bukan cuma flag is_sucking) — kalau tidak, sfx suck bisa
+        # nyangkut terus walau player sudah di-respawn.
+        if self.suck_sound_player is not None:
+            try:
+                arcade.stop_sound(self.suck_sound_player)
+            except Exception:
+                pass
+            audio_registry.unregister(self.suck_sound_player)
+            self.suck_sound_player = None
 
     def _cancel_dash(self):
         if self.is_dashing:
@@ -242,6 +258,21 @@ class mainfish:
         total_distance            = 75 * self.last_dir_x
         self.dash_steps_remaining = 5
         self.dash_step_distance   = total_distance / 5
+
+        try:
+            _base = os.path.dirname(os.path.abspath(__file__))
+            sfx_path = os.path.join(_base, "assets", "sfx", "abillities_sfx", "dash.mp3")
+            dash_sfx = arcade.load_sound(sfx_path)
+            try:
+                from setting import load_settings as _ls
+                _svol = _ls().get("sfx_volume", 0.6)
+            except Exception:
+                _svol = 0.6
+            arcade.play_sound(dash_sfx, volume=_svol)
+        except Exception as e:
+            print(f"Gagal memutar SFX makan: {e}")
+
+                    
         arcade.schedule(self._perform_dash_step, 1 / 60)
         return total_distance
 
@@ -252,6 +283,8 @@ class mainfish:
             self.is_dashing = False
             self.speed_x    = 0
             arcade.unschedule(self._perform_dash_step)
+
+                
 
     def update_dash_cooldown(self):
         """Tick cooldown tiap frame. Panggil dari game.py."""
@@ -274,8 +307,34 @@ class mainfish:
             return     # tunggu bar regen
         self.is_sucking = True
 
+        if self.suck_sound_player is None:
+            try:
+                _base = os.path.dirname(os.path.abspath(__file__))
+                sfx_path = os.path.join(_base, "assets", "sfx", "abillities_sfx", "suck.wav")
+                suck_sfx = arcade.load_sound(sfx_path)
+                try:
+                    from setting import load_settings as _ls
+                    _svol = _ls().get("sfx_volume", 0.6)
+                except Exception:
+                    _svol = 0.6
+                self.suck_sound_player = arcade.play_sound(suck_sfx, volume=_svol, loop=True)
+                audio_registry.register(self.suck_sound_player)
+            except Exception as e:
+                print(f"Gagal memutar SFX makan: {e}")
+
     def stop_suck(self):
         self.is_sucking = False
+
+        # BUG LAMA: kondisi ini sebelumnya "is None" (kebalik), jadi
+        # stop_sound cuma pernah dipanggil saat player-nya sudah None
+        # (tidak pernah benar-benar menghentikan suara yang sedang jalan).
+        if self.suck_sound_player is not None:
+            try:
+                arcade.stop_sound(self.suck_sound_player)
+            except Exception:
+                pass
+            audio_registry.unregister(self.suck_sound_player)
+            self.suck_sound_player = None
 
     def update_suck(self, enemy_list, eat_animations, map_width, map_height):
         """Kelola bar suck dan tarik ikan. Panggil tiap frame dari game.py."""
@@ -285,6 +344,12 @@ class mainfish:
             # Sync alias HUD
             self.suck_active_timer = int(self.suck_bar)
             self.suck_cooldown     = 0
+
+            if self.suck_sound_player is not None:
+                try: arcade.stop_sound(self.suck_sound_player)
+                except Exception: pass
+                audio_registry.unregister(self.suck_sound_player)
+                self.suck_sound_player = None
             return []
 
         # Hisap aktif: kurangi bar
@@ -294,7 +359,14 @@ class mainfish:
         if self.suck_bar <= 0:
             self.suck_bar   = 0
             self.is_sucking = False
+            if self.suck_sound_player is not None:
+                try: arcade.stop_sound(self.suck_sound_player)
+                except Exception: pass
+                audio_registry.unregister(self.suck_sound_player)
+                self.suck_sound_player = None
             return []
+        
+        
 
         # Tarik ikan dalam corong
         mouth_x = self.x + self.facing * (self.width / 2)

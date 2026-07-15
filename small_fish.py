@@ -2,7 +2,75 @@
 import arcade
 import random
 import math
+import os
 from outside import SURFACE_MARGIN_FROM_TOP
+
+# ── SFX untuk jumpingsmallfish (lompat/mendarat) ──
+# Di-cache di level MODULE (bukan per-instance) karena bisa ada BANYAK
+# jumpingsmallfish sekaligus (schooling) — supaya file sfx cuma di-load
+# SEKALI walau ikannya banyak, bukan dobel-dobel tiap ikan.
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+_jump_sfx_cache   = None
+_splash_sfx_cache = None
+
+
+def _get_jump_sfx():
+    global _jump_sfx_cache
+    if _jump_sfx_cache is None:
+        try:
+            path = os.path.join(_BASE_DIR, "assets", "sfx", "jump_sfx", "jump.mp3")
+            _jump_sfx_cache = arcade.load_sound(path)
+        except Exception as e:
+            print(f"Gagal memuat sfx jump (jumpingsmallfish): {e}")
+    return _jump_sfx_cache
+
+
+def _get_splash_sfx():
+    global _splash_sfx_cache
+    if _splash_sfx_cache is None:
+        try:
+            path = os.path.join(_BASE_DIR, "assets", "sfx", "jump_sfx", "splash.mp3")
+            _splash_sfx_cache = arcade.load_sound(path)
+        except Exception as e:
+            print(f"Gagal memuat sfx splash (jumpingsmallfish): {e}")
+    return _splash_sfx_cache
+
+
+# ── Jarak dengar untuk sfx lompat/splash jumpingsmallfish ──
+# Di bawah radius ini, sfx full volume. Di antara FULL dan HEAR, volume
+# meredup linear. Di luar HEAR radius sama sekali, sfx tidak dimainkan
+# (supaya ikan yang jauh di luar kamera tidak kedengaran lompatannya).
+JUMP_SFX_FULL_VOLUME_RADIUS = 220
+JUMP_SFX_HEAR_RADIUS        = 700
+
+
+def _distance_volume_mult(fish_x, fish_y, player):
+    """Hitung faktor volume (0.0 - 1.0) berdasar jarak fish ke player,
+    dipakai supaya sfx lompat/splash jumpingsmallfish yang jauh dari
+    kamera tidak kedengaran, dan yang dekat kedengaran penuh."""
+    if player is None:
+        return 1.0
+    d = math.sqrt((fish_x - player.x) ** 2 + (fish_y - player.y) ** 2)
+    if d <= JUMP_SFX_FULL_VOLUME_RADIUS:
+        return 1.0
+    if d >= JUMP_SFX_HEAR_RADIUS:
+        return 0.0
+    t = (d - JUMP_SFX_FULL_VOLUME_RADIUS) / (JUMP_SFX_HEAR_RADIUS - JUMP_SFX_FULL_VOLUME_RADIUS)
+    return max(0.0, 1.0 - t)
+
+
+def _play_sfx(sfx, volume_mult=1.0):
+    if sfx is None or volume_mult <= 0:
+        return
+    try:
+        from setting import load_settings as _ls
+        volume = _ls().get("sfx_volume", 0.6)
+    except Exception:
+        volume = 0.6
+    try:
+        arcade.play_sound(sfx, volume=volume * volume_mult)
+    except Exception as e:
+        print(f"Gagal memutar sfx: {e}")
 
 class smallfish:
     def __init__(self, width, height, x, y):
@@ -235,7 +303,7 @@ class jumpingsmallfish:
         arcade.draw_rect_filled(body, (0, 200, 180))     # cyan — beda dari smallfish kuning
 
     # ── LOMPAT ──
-    def _mulai_lompat(self):
+    def _mulai_lompat(self, player=None):
         self.is_jumping    = True
         self.jump_progress = 0.0
         self._jump_start_x = self.x
@@ -247,7 +315,13 @@ class jumpingsmallfish:
         self._jump_dir_x = (dx / dist) if dist > 0 else random.choice([-1, 1])
         self._jump_horiz = random.uniform(60, 130)
 
-    def _update_lompat(self, bugs, eat_animations):
+        # SFX (1): lompat keluar air — persis di titik mulai lompat.
+        # Volume diskalakan berdasar jarak ke player supaya ikan yang jauh
+        # dari kamera tidak kedengaran lompatannya.
+        mult = _distance_volume_mult(self.x, self.y, player)
+        _play_sfx(_get_jump_sfx(), mult)
+
+    def _update_lompat(self, bugs, eat_animations, player=None):
         self.jump_progress += self.jump_speed
         t = min(1.0, self.jump_progress)
 
@@ -269,6 +343,12 @@ class jumpingsmallfish:
             self.target_x = random.randint(50, self.screen_width - 50)
             self.target_y = random.randint(50, max(100, int(self.water_max_y)))
 
+            # SFX (2): jatuh/mendarat kembali ke air — persis di titik lompat
+            # selesai. Sama seperti sfx lompat, volume diskalakan berdasar
+            # jarak ke player (kalau jauh dari kamera, tidak kedengaran).
+            mult = _distance_volume_mult(self.x, self.y, player)
+            _play_sfx(_get_splash_sfx(), mult)
+
     def _coba_makan_bug(self, bugs, eat_animations):
         EAT_RADIUS = 32
         for bug in bugs:
@@ -287,7 +367,7 @@ class jumpingsmallfish:
         # Kalau sedang melompat, jalankan animasi lompat & jangan lakukan
         # gerakan renang/flee biasa dulu.
         if self.is_jumping:
-            self._update_lompat(bugs, eat_animations)
+            self._update_lompat(bugs, eat_animations, player)
             self.x = max(25, min(self.x, self.screen_width - 25))
             return
 
@@ -301,7 +381,7 @@ class jumpingsmallfish:
                 self.target_y = max(50, self.water_max_y - random.uniform(0, 25))
             if self.y >= self.water_max_y - 40:
                 self._menuju_permukaan = False
-                self._mulai_lompat()
+                self._mulai_lompat(player)
                 return
         else:
             self.jump_cooldown -= 1

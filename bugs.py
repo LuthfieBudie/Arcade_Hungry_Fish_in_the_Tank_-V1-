@@ -87,7 +87,8 @@ class BugManager:
         self._max_y     = surface_y + BUG_MAX_ABOVE_SURFACE
 
         self.bugs           = []
-        self._pending_score = 0
+        self._pending_score  = 0
+        self._pending_points = 0   # untuk POINTS HUD permanen (bug = 1 poin)
         self._replenish()
 
     def _spawn_one(self):
@@ -125,6 +126,7 @@ class BugManager:
                         abs(py - bug.y) < ph + EAT_RADIUS):
                     bug.eaten = True
                     self._pending_score += random.randint(1, 3)
+                    self._pending_points += 1   # POINTS HUD: bug = 1 poin tetap
 
                     # ── Animasi makan bug (sama seperti ikan) ──
                     if eat_animations is not None:
@@ -148,6 +150,11 @@ class BugManager:
         s = self._pending_score
         self._pending_score = 0
         return s
+
+    def consume_points(self):
+        p = self._pending_points
+        self._pending_points = 0
+        return p
 
     def draw(self):
         for bug in self.bugs:

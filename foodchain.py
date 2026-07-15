@@ -24,6 +24,22 @@ MIN_SMALL  = 28
 MIN_MEDIUM = 8
 MIN_HUGE   = 3
 
+# ── Target populasi dinamis berdasarkan status player ──
+# Saat player sudah MEDIUM: perbanyak huge fish, kurangi medium fish
+# (medium fish jadi predator utama player, jadi huge fish diperbanyak
+# supaya ekosistem tetap "berbahaya" & terasa naik level).
+# Saat player sudah HUGE: huge fish tetap banyak, tantangan tambahan
+# datang dari dangerous fish (lihat game.py & dangerous_fish.py).
+TARGET_BY_STATUS = {
+    "SMALL":  {"small": MIN_SMALL, "medium": MIN_MEDIUM, "huge": MIN_HUGE},
+    "MEDIUM": {"small": MIN_SMALL, "medium": 4,           "huge": 9},
+    "HUGE":   {"small": MIN_SMALL, "medium": 3,           "huge": 12},
+}
+
+# Berapa banyak ikan medium yang dikonversi jadi huge per siklus rebalance
+# (dibuat bertahap/gradual, bukan sekaligus, biar transisinya halus)
+REBALANCE_CONVERT_PER_TICK = 1
+
 # ── Radius berburu NPC ──
 # Dibuat lebih kecil dari sebelumnya agar huge fish tidak terlalu agresif
 # mengejar small fish (yang akibatnya membuat small fish cepat habis).
@@ -71,6 +87,9 @@ class FoodChain:
         if self.respawn_timer <= 0:
             self.respawn_timer = self.RESPAWN_INTERVAL
             self._replenish_population(enemy_list, player, map_width, map_height)
+            # Rebalance: konversi medium -> huge secara bertahap kalau
+            # status player sudah naik (MEDIUM/HUGE)
+            self._rebalance_population(enemy_list, player, map_width, map_height)
 
         # Bersihkan cooldown untuk predator yang sudah tidak ada
         alive_ids = {id(f) for f in enemy_list}
@@ -197,7 +216,14 @@ class FoodChain:
     # ─────────────────────────────────────────────────────────────────
     # REPLENISH — jaring pengaman, spawn kalau populasi benar-benar turun
     # ─────────────────────────────────────────────────────────────────
+    def _get_targets(self, player):
+        """Ambil target populasi (small/medium/huge) sesuai status player saat ini."""
+        status = getattr(player, 'status', 'SMALL') if player else 'SMALL'
+        return TARGET_BY_STATUS.get(status, TARGET_BY_STATUS['SMALL'])
+
     def _replenish_population(self, enemy_list, player, map_width, map_height):
+        targets = self._get_targets(player)
+
         jumlah_small  = sum(1 for f in enemy_list if f.__class__.__name__ == "smallfish")
         jumlah_medium = sum(1 for f in enemy_list if f.__class__.__name__ == "mediumfish")
         jumlah_huge   = sum(1 for f in enemy_list if f.__class__.__name__ == "hugefish")
@@ -215,17 +241,48 @@ class FoodChain:
                     enemy_list.append(factory(pos[0], pos[1]))
 
         spawn_beberapa(
-            jumlah_small, MIN_SMALL,
+            jumlah_small, targets["small"],
             lambda x, y: self._buat_small(x, y, map_width, map_height)
         )
         spawn_beberapa(
-            jumlah_medium, MIN_MEDIUM,
+            jumlah_medium, targets["medium"],
             lambda x, y: mediumfish(map_width, map_height, x, y)
         )
         spawn_beberapa(
-            jumlah_huge, MIN_HUGE,
+            jumlah_huge, targets["huge"],
             lambda x, y: hugefish(map_width, map_height, x, y)
         )
+
+    def _rebalance_population(self, enemy_list, player, map_width, map_height):
+        """Kalau populasi medium fish sudah lebih banyak dari target (karena
+        player naik status ke MEDIUM/HUGE), konversi kelebihannya jadi huge
+        fish secara bertahap — sedikit demi sedikit tiap siklus supaya
+        transisinya halus, bukan tiba-tiba menghilang/muncul massal.
+
+        Kalau player masih SMALL, target = default, jadi tidak ada rebalance.
+        """
+        targets = self._get_targets(player)
+
+        medium_list = [f for f in enemy_list if f.__class__.__name__ == "mediumfish"]
+
+        # Konversi terus selama medium masih lebih banyak dari target —
+        # TIDAK berhenti hanya karena huge sudah mencapai targetnya, sebab
+        # tujuan utamanya memang "sedikitkan medium" saat status player naik.
+        # Huge fish boleh melebihi target minimumnya (itu wajar, targets
+        # hanya batas bawah/minimum, bukan batas atas).
+        kelebihan_medium = len(medium_list) - targets["medium"]
+
+        if kelebihan_medium <= 0:
+            return
+
+        jumlah_konversi = min(kelebihan_medium, REBALANCE_CONVERT_PER_TICK)
+        for _ in range(jumlah_konversi):
+            if not medium_list:
+                break
+            fish = medium_list.pop(random.randrange(len(medium_list)))
+            if fish in enemy_list:
+                enemy_list.remove(fish)
+            enemy_list.append(hugefish(map_width, map_height, fish.x, fish.y))
 
     def _buat_small(self, x, y, map_width, map_height):
         ikan = smallfish(map_width, map_height, x, y)

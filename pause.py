@@ -1,5 +1,7 @@
 import arcade
 
+import audio_registry
+
 
 WIDTH = 800
 HEIGHT = 560
@@ -54,7 +56,6 @@ class pause(arcade.View):
         arcade.draw_text("RESTART", self.restart_btn_x, self.restart_btn_y, arcade.color.WHITE, font_size=14, anchor_x="center", anchor_y="center")
         
     def on_key_press(self, key, modifiers):
-        # Jika tekan ESC saat pause, kembali ke game (dan kunci mouse lagi)
         if key == arcade.key.ESCAPE:
             self.resume_game()
 
@@ -76,9 +77,14 @@ class pause(arcade.View):
             exit_top = self.exit_btn_y + (self.exit_btn_h / 2) 
             
             if exit_left <= x <= exit_right and exit_bottom <= y <= exit_top:
+                if hasattr(self.game_view, '_save_highscore_to_csv'):
+                    self.game_view._save_highscore_to_csv()
+                # Benar-benar hentikan SEMUA sfx looping (bukan cuma pause)
+                # supaya tidak ada yang kebawa nyangkut ke menu.
+                audio_registry.stop_all()
+                from loading_screen import LoadingScreen
                 from menu import MenuView
-                menu_view = MenuView()
-                self.window.show_view(menu_view) 
+                self.window.show_view(LoadingScreen(on_ready=lambda: MenuView()))
 
             
             restart_left = self.restart_btn_x - (self.restart_btn_w / 2)
@@ -87,12 +93,21 @@ class pause(arcade.View):
             restart_top = self.restart_btn_y + (self.restart_btn_h / 2) 
             
             if restart_left <= x <= restart_right and restart_bottom <= y <= restart_top:
+                # Simpan Total Time & Total Point sesi ini dulu sebelum restart.
+                if hasattr(self.game_view, '_save_highscore_to_csv'):
+                    self.game_view._save_highscore_to_csv()
+                # Benar-benar hentikan SEMUA sfx looping (bukan cuma pause)
+                # supaya tidak ada yang kebawa nyangkut ke sesi game baru.
+                audio_registry.stop_all()
+                from loading_screen import LoadingScreen
                 from game import GameView
-                game_view = GameView()
-                self.window.show_view(game_view) 
+                self.window.show_view(LoadingScreen(on_ready=lambda: GameView()))
 
     # Fungsi pembantu untuk meresume game sekaligus mengunci mouse kembali
     def resume_game(self):
         self.window.set_mouse_visible(False)   # Sembunyikan kursor kembali
         self.game_view._confine_mouse()         # Kunci koordinat mouse lagi lewat Win32API
+        # Lanjutkan semua sfx looping/ambient yang di-pause_all() tadi
+        # (outside, bubble, suck, jumpscare dangerous fish, dll).
+        audio_registry.resume_all()
         self.window.show_view(self.game_view)   # Kembali ke game

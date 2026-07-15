@@ -1,4 +1,9 @@
 import math
+import os
+import arcade
+
+BASE_DIR        = os.path.dirname(os.path.abspath(__file__))
+RESPAWN_SFX_PATH = os.path.join(BASE_DIR, "assets", "sfx", "respawn_sfx", "respawn.mp3") 
 
 
 # ─── Ease functions ───────────────────────────────────────────────────────────
@@ -55,6 +60,34 @@ class RespawnAnimator:
         self._progress = 0.0
         self._on_done  = None
 
+        self._respawn_sfx    = None
+        self._respawn_player = None  
+        try:
+            self._respawn_sfx = arcade.load_sound(RESPAWN_SFX_PATH)
+        except Exception as e:
+            print(f"Gagal memuat sfx respawn: {e}")
+
+    def start_respawn(self):
+        self._play_respawn_sfx()
+
+    def _play_respawn_sfx(self):
+        if self._respawn_sfx is None:
+            return
+
+        if self._respawn_player is not None:
+            try:
+                arcade.stop_sound(self._respawn_player)
+            except Exception:
+                pass
+            self._respawn_player = None
+
+        try:
+            self._respawn_player = arcade.play_sound(self._respawn_sfx, volume=1.0)
+        except Exception as e:
+            print(f"Gagal memutar sfx respawn: {e}")
+
+
+
     # ──────────────────────────────────────────────────────────────────────────
     def start(self, player, target_x: float, target_y: float,
               map_height: float, on_done=None):
@@ -74,6 +107,8 @@ class RespawnAnimator:
         self._progress = 0.0
         self._on_done  = on_done
         self.running   = True
+
+        self.start_respawn()
 
         # Set posisi awal pada player dan tandai spawning
         player.x           = target_x

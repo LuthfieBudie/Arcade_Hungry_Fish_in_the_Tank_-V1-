@@ -1,5 +1,6 @@
 import arcade
 import random
+import os
 
 WIDTH = 800
 HEIGHT = 560
@@ -26,6 +27,24 @@ class help(arcade.View):
 
         self.menubtn_hovered = False
     
+
+
+    def _play_click_sfx(self):
+        try:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            sfx_path = os.path.join(base_dir, "assets", "sfx", "button_sfx", "4.mp3")
+            click_sound = arcade.load_sound(sfx_path)
+            
+            # Ambil setelan volume sfx dari file setting bawaan game Anda
+            try:
+                from setting import load_settings as _ls
+                _svol = _ls().get("sfx_volume", 0.0)
+            except Exception:
+                _svol = 0.0
+                
+            arcade.play_sound(click_sound, volume=_svol)
+        except Exception as e:
+            print(f"Gagal memutar SFX tombol: {e}")
 
 
     def on_resize(self, width, height):
@@ -95,7 +114,7 @@ class help(arcade.View):
 
 
     def on_show_view(self):
-        arcade.set_background_color((10, 10, 15))
+        arcade.set_background_color((9, 26, 45))
         self.on_resize(self.window.width, self.window.height)
 
 
@@ -150,9 +169,9 @@ class help(arcade.View):
         )
 
         if self.menubtn_hovered:
-            menubtn_color    = (60, 180, 100)   # Hijau terang saat hover
+            menubtn_color    = (78, 62, 38)     # Perunggu hangat saat hover
         else:
-            menubtn_color    = (40, 130, 70)    # Hijau normal
+            menubtn_color    = (30, 28, 24)     # Charcoal gelap
         
         arcade.draw_rect_filled(
             arcade.rect.XYWH(self.menubtn_x, self.menubtn_y, self.menubtn_w, self.menubtn_h),
@@ -163,7 +182,7 @@ class help(arcade.View):
             "MAIN MENU",
             x=self.menubtn_x,
             y=self.menubtn_y,
-            color=arcade.color.WHITE,
+            color=(255, 255, 255),
             font_size=22,
             bold=True,
             anchor_x="center",
@@ -201,6 +220,7 @@ class help(arcade.View):
     def on_mouse_press(self, x, y, button, modifiers):
         if button == arcade.MOUSE_BUTTON_LEFT:
             if self._help_button(x, y):
+                self._play_click_sfx()
                 from menu import MenuView
                 menu_view = MenuView()
                 self.window.show_view(menu_view) 
